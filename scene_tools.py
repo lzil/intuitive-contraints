@@ -391,7 +391,7 @@ def vec_opposite(a):
 
 # angle between two vectors
 def ang(a, b):
-    return np.arccos((a[0] * b[0] + a[1] * b[1]) / (norm(a) * norm(b)))
+    return np.arccos(min((a[0] * b[0] + a[1] * b[1]) / (norm(a) * norm(b)),1))
 
 # normal variable
 def gauss(scale=1):
@@ -426,63 +426,64 @@ def gauss(scale=1):
 
 
 # get cost based on given locations and velocities, using gaussian distributions
+gauss_dist = scipy.stats.norm(0, 30)
+gauss_vel = scipy.stats.norm(0, 100)
+gauss_vel_norm = scipy.stats.norm(1, 0.3)
+gauss_vel_ang = scipy.stats.norm(0, 0.4)
 def get_cost(l1, l2, obj_id=None):
-    print(obj_id)
-    running_cost_inverse = 0
+    # print(obj_id)
+    running_cost = 0
+    num_steps = len(l1)
     num_objs = len(l1[0])
     # default gaussian distributions of position and velocity differentials
-    gauss_dist = scipy.stats.norm(0, 30)
-    gauss_vel = scipy.stats.norm(0, 100)
-    gauss_vel_norm = scipy.stats.norm(1, 0.3)
-    gauss_vel_ang = scipy.stats.norm(0, 0.1)
-    for i in range(len(l1)):
+    for i in range(num_steps):
         if obj_id == None:
             for j in range(num_objs):
                 obj1 = l1[i][j]
                 obj2 = l2[i][j]
 
                 ddif = dist(obj1[1], obj2[1])
-                vdif = dist(obj1[2], obj2[2])
-                # vdif_norm = norm(obj1[2]) / norm(obj2[2])
-                # vdif_ang = ang(obj1[2], obj2[2])
+                # vdif = dist(obj1[2], obj2[2])
+                vdif_norm = norm(obj1[2]) / norm(obj2[2])
+                vdif_ang = ang(obj1[2], obj2[2])
 
-                dprob = gauss_dist.pdf(ddif)
-                vprob = gauss_vel.pdf(vdif)
-                # vprob_norm = gauss_vel_norm.pdf(vdif_norm)
-                # vprob_ang = gauss_vel_ang.pdf(vdif_ang)
+                dprob = max(gauss_dist.pdf(ddif) / gauss_dist.pdf(0), 1e-200)
+                # vprob = gauss_vel.pdf(vdif)
+                vprob_norm = max(gauss_vel_norm.pdf(vdif_norm) / gauss_vel_norm.pdf(1), 1e-200)
+                vprob_ang = max(gauss_vel_ang.pdf(vdif_ang) / gauss_vel_ang.pdf(0), 1e-200)
 
-                
-                tdif = dprob * vprob * 1e5
-                # tdif = vprob_norm * vprob_ang * dprob * 1e5
-
+                # tdif = np.log(dprob) + np.log(vprob)
+                # tdif = dprob * vprob
+                tdif = np.log(vprob_norm) + np.log(vprob_ang) + np.log(dprob)
                 # print('old', dprob, vprob)
-                # print('new', dprob, vprob_norm, vprob_ang)
+                #print('new', dprob, vprob_norm, vprob_ang)
 
-                running_cost_inverse += tdif
+                running_cost += tdif
         else:
             obj1 = l1[i][obj_id]
             obj2 = l2[i][obj_id]
 
             ddif = dist(obj1[1], obj2[1])
-            vdif = dist(obj1[2], obj2[2])
-            # vdif_norm = norm(obj1[2]) / norm(obj2[2])
-            # vdif_ang = ang(obj1[2], obj2[2])
+            # vdif = dist(obj1[2], obj2[2])
+            vdif_norm = norm(obj1[2]) / norm(obj2[2])
+            vdif_ang = ang(obj1[2], obj2[2])
 
 
-            dprob = gauss_dist.pdf(ddif)
-            vprob = gauss_vel.pdf(vdif)
-            # vprob_norm = gauss_vel_norm.pdf(vdif_norm)
-            # vprob_ang = gauss_vel_ang.pdf(vdif_ang)
-            print(ddif, vdif)
+            dprob = max(gauss_dist.pdf(ddif) / gauss_dist.pdf(0), 1e-200)
+            vprob_norm = max(gauss_vel_norm.pdf(vdif_norm) / gauss_vel_norm.pdf(1), 1e-200)
+            vprob_ang = max(gauss_vel_ang.pdf(vdif_ang) / gauss_vel_ang.pdf(0), 1e-200)
             
 
-            tdif = dprob * vprob * 1e5
-            print(tdif)
+            # tdif = dprob * vprob * 1e5
+            # print(vprob_norm, vprob_ang, dprob)
+            tdif = np.log(vprob_norm) + np.log(vprob_ang) + np.log(dprob)
+            # print(tdif)
             #tdif = vprob_norm * vprob_ang * dprob * 1e5
             
-            running_cost_inverse += tdif
+            running_cost += tdif
     if obj_id == None:
-        return num_objs / running_cost_inverse
+        return -running_cost/num_objs/num_steps
     else:
-        return 1 / running_cost_inverse
+        #pdb.set_trace()
+        return -running_cost/num_steps
 

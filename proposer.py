@@ -32,11 +32,10 @@ def find_candidates(scene, obj_data):
     for i in range(num_obj):
         cost = get_cost(snapback_locs, old_locs, obj_id=i)
         cost_list.append(cost)
-    print(cost_list)
     obj_sorted = list(np.argsort(np.asarray(cost_list)))
     candidates = []
     # print(obj_sorted)
-    threshold = max(cost_list) / 4
+    threshold = 1 #max(cost_list) / 4
     print('Threshold: {}'.format(threshold))
     for ind, cost in enumerate(cost_list):
         if cost > threshold:
@@ -54,7 +53,7 @@ spring_start = (100, 60)
 
 
 # metropolis-hastings algorithm
-def metropolis(scene, save_state, data, ids, start, priors, mults, value_func, proposal_func, niter=10000, nburn=100):
+def metropolis(scene, save_state, data, ids, start, priors, mults, value_func, proposal_func, niter=10000, nburn=0):
     current = start
     # keep list of explored data points
     post = [current]
@@ -67,7 +66,8 @@ def metropolis(scene, save_state, data, ids, start, priors, mults, value_func, p
     for i in range(niter + nburn):
         # propose a new point to jump to
         proposed = proposal_func(current, mults)
-        value_proposed = value_func(scene, save_state, data, ids, proposed)
+        value_proposed = value_func(scene, save_state, data, ids, proposed, whole_scene=False)
+        # pdb.set_trace()
         # print(value_proposed, proposed)
         # pdb.set_trace()
         # calculate probability of jumpint to new point
@@ -85,7 +85,7 @@ def metropolis(scene, save_state, data, ids, start, priors, mults, value_func, p
 
 
 # get the value at a certain point
-def get_value(scene, save_state, data, ids, params, eps=1e-6):
+def get_value(scene, save_state, data, ids, params, whole_scene=True, eps=1e-6):
     scene.load_state(save_state)
 
     p_obj = [scene.bodies[i] for i in ids]
@@ -93,8 +93,16 @@ def get_value(scene, save_state, data, ids, params, eps=1e-6):
 
     # use snapback rule to get cost
     old_locs, new_locs = scene.get_snapback_locs(data)
-    cost = get_cost(old_locs, new_locs)
-    return 1 / (cost)
+
+    total_cost = 0
+    if whole_scene:
+        total_cost = get_cost(old_locs, new_locs)
+    else:
+        for i in ids:
+            cost = get_cost(old_locs, new_locs, i)
+            total_cost += cost
+        total_cost /= len(ids)
+    return np.exp(-total_cost)
 
 
 # given a certain point, propose a new point to jump to in next iteration of MH
@@ -135,60 +143,92 @@ def main(args):
     # save current state because will need to run many times later for simulations
     save_state = scene.save_state()
 
-    # find which objects likely involve some sort of constraint
-    objects_constrained = find_candidates(scene, obj_data)
-    sys.exit()
+    while True:
+        #pdb.set_trace()
 
-    if len(objects_constrained) < 2:
-        print("Only {} above threshold; can't create constraints.".format(len(objects_constrained)))
-        sys.exit(0)
-    print('Constrained objects: {}'.format(objects_constrained))
+        # find which objects likely involve some sort of constraint
+        objects_constrained = find_candidates(scene, obj_data)
+        # sys.exit()
+
+        print('Constrained objects: {}'.format(objects_constrained))
+        if len(objects_constrained) < 2:
+            print("Only {} above threshold; can't create constraints.".format(len(objects_constrained)))
+            sys.exit(0)
+        
+
+        do_mh = True
+        mh_data = {}
+        if do_mh:
+            candidate_pairs = []
+
+            # creating list of possible constraint pairs: candidate_pairs
+            cons = [(i[1], i[2]) for i in scene.get_constraint_rep()]
+            num_constrained = len(objects_constrained)
+            scene.load_state(save_state)
+            for i in range(num_constrained): 
+                for j in range(i + 1, num_constrained):
+                    obj1 = scene.bodies[objects_constrained[i]]
+                    obj2 = scene.bodies[objects_constrained[j]]
+                    d = dist(obj1.position, obj2.position)
+                    if (objects_constrained[i], objects_constrained[j]) not in cons and (objects_constrained[j], objects_constrained[i]) not in cons:
+                        candidate_pairs.append((d, objects_constrained[i], objects_constrained[j]))
+            candidate_pairs = sorted(candidate_pairs)
 
 
-    do_mh = True
-    mh_data = {}
-    if do_mh:
-        candidate_pairs = []
+            scene.load_state(save_state)
+            old_locs, new_locs = scene.get_snapback_locs(obj_data)
+            scene_prob = np.exp(-get_cost(old_locs, new_locs))
 
-        num_constrained = len(objects_constrained)
-        for i in range(num_constrained):
-            for j in range(i + 1, num_constrained):
-                obj1 = scene.bodies[objects_constrained[i]]
-                obj2 = scene.bodies[objects_constrained[j]]
-                d = dist(obj1.position, obj2.position)
-                candidate_pairs.append((d, objects_constrained[i], objects_constrained[j]))
-
-        sorted(candidate_pairs)
-        print(con_data)
-
-        print('Pair \tData   \tValue')
-        for pair_tuple in candidate_pairs:
-            pair = pair_tuple[1:]
-
-            # run them MH algorithm with some number of steps
-            trial_data = metropolis(scene, save_state, obj_data, pair, spring_start, spring_priors, spring_multipliers, get_value, make_proposal, niter=400)
-            trial_data_round = [int(i) for i in trial_data[-1]]
-            trial_value = get_value(scene, save_state, obj_data, pair, trial_data[-1])
-            print('{}\t{}\t{}'.format(pair, trial_data_round, trial_value))
-
-            # save the data from this run
-            mh_data[pair] = trial_data
             
-            
-        with open(os.path.join(os.path.dirname(file), '{}_metropolis.pkl'.format(file_id)), 'wb') as f:
-            pickle.dump(mh_data, f)
-            print('Produced {}_metropolis.pkl'.format(file_id))
-    else:
-        # load from a file and just plot
-        with open(os.path.join(os.path.dirname(file), '{}_metropolis.pkl'.format(file_id)), 'rb') as f:
-            mh_data = pickle.load(f)
+            # print(candidate_pairs)
+            print(con_data)
+            print('Cost of scene without new constraints: {}'.format(scene_prob))
+
+            pair_parameters = []
+
+            print('Pair \tData   \tValue')
+            for pair_tuple in candidate_pairs:
+                pair = pair_tuple[1:]
+
+                # run them MH algorithm with some number of steps
+                trial_data = metropolis(scene, save_state, obj_data, pair, spring_start, spring_priors, spring_multipliers, get_value, make_proposal, niter=40)
+                trial_data_round = [int(i) for i in trial_data[-1]]
+                trial_value = get_value(scene, save_state, obj_data, pair, trial_data_round)
+                print('{}\t{}\t{}'.format(pair, trial_data_round, trial_value))
+
+                # save the data from this run
+                mh_data[pair] = trial_data
+                pair_parameters.append([trial_value, list(pair), trial_data_round])
+
+            pair_parameters = sorted(pair_parameters, reverse=True)
+            # best_scene_prob = get_value(scene, save_state, obj_data, None, None)
+
+            if pair_parameters[0][0] > scene_prob:
+                best_pair = pair_parameters[0][1]
+                best_params = pair_parameters[0][2]
+                print('Best pair: {} with parameters {} and prob {}'.format(best_pair, best_params, pair_parameters[0][0]))
+                scene.load_state(save_state)
+                scene.add_spring_constraint(scene.bodies[best_pair[0]], scene.bodies[best_pair[1]], best_params + [0])
+                save_state = scene.save_state()
+            else:
+                print('Best pair prob {} is less than scene prob {}'.format(pair_parameters[0][0], scene_prob))
+                break
+                
+                
+            with open(os.path.join(os.path.dirname(file), '{}_metropolis.pkl'.format(file_id)), 'wb') as f:
+                pickle.dump(mh_data, f)
+                print('Produced {}_metropolis.pkl'.format(file_id))
+        else:
+            # load from a file and just plot
+            with open(os.path.join(os.path.dirname(file), '{}_metropolis.pkl'.format(file_id)), 'rb') as f:
+                mh_data = pickle.load(f)
 
 
     # graph the data from this run
     
     
 
-    fig, ax = plt.subplots(1, len(mh_data), squeeze=False)
+    fig, ax = plt.subplots(1, len(mh_data))
     fig.suptitle('density')
     #fig.ylabel('damping')
     nbins = 20
