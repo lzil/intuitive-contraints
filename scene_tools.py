@@ -47,6 +47,7 @@ class Scene:
         if walls:
             self.add_walls()
 
+        self.constraints = {}
         self.func_constraints = []
 
     # add walls on the four borders of the space
@@ -102,10 +103,16 @@ class Scene:
             params = [rest_length, stiffness, damping]
         if self.verbose:
             print('Adding spring to {}-{}; {}, {}'.format(self.bodies.index(b1), self.bodies.index(b2), params[0], params[1]))
+        indices = (self.bodies.index(b1), self.bodies.index(b2))
         spring_joint = pymunk.DampedSpring(b1, b2, (0,0), (0,0), params[0], params[1], 0)
+        self.constraints[(min(indices), max(indices))] = spring_joint
         self.space.add(spring_joint)
         return spring_joint
 
+    def remove_constraint(self, pair):
+        con = self.constraints[pair]
+        self.space.remove(con)
+        del self.constraints[pair]
 
 
     # def add_func_constraint(self, b1, b2, params=None):
@@ -169,6 +176,7 @@ class Scene:
     # get rid of everything in the space, as if nothing had happened
     def reset_space(self):
         self.bodies = []
+        self.constraints = {}
         self.space.remove(self.space.bodies, self.space.shapes, self.space.constraints)
         self.add_walls()
 
@@ -389,6 +397,11 @@ def vec_with_length(a, new_len):
 def vec_opposite(a):
     return (-a[0], -a[1])
 
+def add_vec(a, b):
+    return (a[0] + b[0], a[1] + b[1])
+def sub_vec(a, b):
+    return (a[0] - b[0], a[1] - b[1])
+
 # angle between two vectors
 def ang(a, b):
     return np.arccos(min((a[0] * b[0] + a[1] * b[1]) / (norm(a) * norm(b)),1))
@@ -459,6 +472,35 @@ def get_cost(l1, l2, obj_id=None):
                 #print('new', dprob, vprob_norm, vprob_ang)
 
                 running_cost += tdif
+        elif type(obj_id) == tuple:
+            obj1_1 = l1[i][obj_id[0]]
+            obj2_1 = l1[i][obj_id[1]]
+            obj1_2 = l2[i][obj_id[0]]
+            obj2_2 = l2[i][obj_id[1]]
+
+            ddif_1 = sub_vec(obj1_1[1], obj2_1[1])
+            ddif_2 = sub_vec(obj1_2[1], obj2_2[1])
+            ddif = dist(ddif_1, ddif_2)
+
+
+            # ddif = dist(obj1_1[1], obj2[1])
+            # vdif = dist(obj1[2], obj2[2])
+            vdif_1 = sub_vec(obj1_1[2], obj2_1[2])
+            vdif_2 = sub_vec(obj1_2[2], obj2_2[2])
+
+            vdif_norm = norm(vdif_1) / norm(vdif_2)
+            vdif_ang = ang(vdif_1, vdif_2)
+
+
+            dprob = max(gauss_dist.pdf(ddif) / gauss_dist.pdf(0), 1e-200)
+            vprob_norm = max(gauss_vel_norm.pdf(vdif_norm) / gauss_vel_norm.pdf(1), 1e-200)
+            vprob_ang = max(gauss_vel_ang.pdf(vdif_ang) / gauss_vel_ang.pdf(0), 1e-200)
+            
+
+            # tdif = dprob * vprob * 1e5
+            # print(vprob_norm, vprob_ang, dprob)
+            tdif = np.log(vprob_norm) + np.log(vprob_ang) + np.log(dprob)
+            running_cost += tdif
         else:
             obj1 = l1[i][obj_id]
             obj2 = l2[i][obj_id]
@@ -487,3 +529,7 @@ def get_cost(l1, l2, obj_id=None):
         #pdb.set_trace()
         return -running_cost/num_steps
 
+
+
+def print_time(label, start):
+    print('{}: {}'.format(label, time.time() - start))
