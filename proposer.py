@@ -19,8 +19,6 @@ from matplotlib import cm
 from scene_tools import *
 import argparse
 
-import pymc3 as pm
-
 import pdb
 
 
@@ -82,16 +80,20 @@ def metropolis(scene, save_state, data, ids, start, priors, mults, value_func, p
     return post[nburn:]
 
 
-# get the value at a certain point while adding/modifying a constraint, given observed data
+# get the value at a certain point while adding/modifying a spring, given observed data
 def get_value_spring(scene, save_state, data, ids, params, whole_scene=True, eps=1e-6):
     scene.load_state(save_state)
 
+    p_obj = [scene.bodies[i] for i in ids]
     if ids not in scene.constraints:
-        p_obj = [scene.bodies[i] for i in ids]
-        spring_joint = scene.add_spring_constraint(p_obj[0], p_obj[1], params)
+        scene.add_spring_constraint(p_obj[0], p_obj[1], params)
     else:
-        scene.constraints[ids].rest_length = params[0]
-        scene.constraints[ids].stiffness = params[1]
+        if type(scene.constraints[ids]) == pymunk.constraint.DampedSpring:
+            scene.constraints[ids].rest_length = params[0]
+            scene.constraints[ids].stiffness = params[1]
+        else:
+            scene.remove_constraint(ids)
+            scene.add_spring_constraint(p_obj[0], p_obj[1], params)
 
     # use snapback rule to get cost
     old_locs, new_locs = scene.get_snapback_locs(data)
@@ -105,25 +107,51 @@ def get_value_spring(scene, save_state, data, ids, params, whole_scene=True, eps
             cost = get_cost(old_locs, new_locs, i)
             total_cost += cost
         total_cost /= len(ids)
-    return np.exp(-total_cost)
+    return np.exp(-total_cost) * (0.9 ** len(scene.constraints))
+
+# get the value at a certain point while adding/modifying a pin, given observed data
+def get_value_pin(scene, save_state, data, ids, whole_scene=True, eps=1e-6):
+    scene.load_state(save_state)
+
+    p_obj = [scene.bodies[i] for i in ids]
+    if ids not in scene.constraints:
+        scene.add_pin_constraint(p_obj[0], p_obj[1])
+    else:
+        if type(scene.constraints[ids]) == pymunk.constraint.DampedSpring:
+            scene.remove_constraint(ids)
+            scene.add_pin_constraint(p_obj[0], p_obj[1])
+
+    # use snapback rule to get cost
+    old_locs, new_locs = scene.get_snapback_locs(data)
+
+    total_cost = 0
+    if whole_scene:
+        total_cost = get_cost(old_locs, new_locs)
+    else:
+        # total_cost = get_cost(old_locs, new_locs, ids)
+        for i in ids:
+            cost = get_cost(old_locs, new_locs, i)
+            total_cost += cost
+        total_cost /= len(ids)
+    return np.exp(-total_cost) * (0.9 ** len(scene.constraints))
 
 
 # get the probability value for a given scene, given the observed data
 def get_value_scene(scene, save_state, data):
     scene.load_state(save_state)
     old_locs, new_locs = scene.get_snapback_locs(data)
-    return np.exp(-get_cost(old_locs, new_locs))
+    return np.exp(-get_cost(old_locs, new_locs)) * (0.9 ** len(scene.constraints))
 
 
 # given a certain point, propose a new point to jump to in next iteration of MH
-def make_proposal(params, multipliers):
+def make_proposal(params, multipliers, limits=[0, 0]):
     assert len(params) == len(multipliers)
     new_params = []
     for ind, p in enumerate(spring_priors):
         while True:
             dec = np.random.normal(0,1)
             proposal_point = params[ind] + dec * multipliers[ind]
-            if p.pdf(proposal_point) / p.pdf(p.median()) < np.random.random() or proposal_point < 0:
+            if p.pdf(proposal_point) / p.pdf(p.median()) < np.random.random() or proposal_point < limits[ind]:
                 continue
             else:
                 new_params.append(proposal_point)
@@ -210,7 +238,7 @@ def guess_scene_constraints(scene, save_state, mh=True):
     if mh:
         graph = {}
         for i in range(num_obj):
-            graph[i] = [[None, (100, 60)]] * num_obj
+            graph[i] = [['spring', (100, 60)]] * num_obj
 
         values = []
         constraints = []
@@ -224,10 +252,13 @@ def guess_scene_constraints(scene, save_state, mh=True):
         iteration = 0
         while True:
             iteration += 1
+            scene_prob = get_value_scene(scene, save_state, obj_data)
+            print('\nIteration {} with scene probability: {}'.format(iteration, scene_prob))
 
             # find which objects likely involve some sort of constraint
             loop_start_time = time.time()
             objects_constrained = get_constraint_order(scene, obj_data)
+            # print(objects_constrained)
 
             # get one object to fixate on based on probability distribution of costs
             objects_constrained_probs = [i[0] for i in objects_constrained]
@@ -236,64 +267,103 @@ def guess_scene_constraints(scene, save_state, mh=True):
             chosen_obj = np.random.choice(objects_constrained_sels, p=objects_constrained_probs)
 
 
-            scene_prob = get_value_scene(scene, save_state, obj_data)
-            print('\nIteration {} with scene probability: {}'.format(iteration, scene_prob))
-
             # get selection of other objects to make pairings based on inverse distribution of distances
             other_distances = distances[chosen_obj]
             other_probs, other_ids = zip(*other_distances)
             other_probs = [1/i for i in other_probs]
             other_probs = [i / sum(other_probs) for i in other_probs]
-            chosen_others = np.random.choice(other_ids, p=other_probs, size=num_per_iteration, replace=False)
+            #chosen_others = np.random.choice(other_ids, p=other_probs, size=num_per_iteration, replace=False)
+
+            distance_probs = zip(other_ids, other_probs)
+            constrain_probs = zip(objects_constrained_sels, objects_constrained_probs)
+
+            mixed_probs = [1] * num_obj
+            for i in distance_probs:
+                mixed_probs[i[0]] *= i[1]
+            for i in constrain_probs:
+                mixed_probs[i[0]] *= i[1]
+
+            other_probs_mixed = [mixed_probs[i] for i in other_ids]
+            other_probs_mixed = [i / sum(other_probs_mixed) for i in other_probs_mixed]
+            chosen_others = np.random.choice(other_ids, p=other_probs_mixed, size=num_per_iteration, replace=False)
 
 
             for other_obj in chosen_others:
                 connection_info = graph[chosen_obj][other_obj]
                 pair = (min(chosen_obj, other_obj), max(chosen_obj, other_obj))
 
-
                 # get a good setting of parameters given particular constraint
                 trial_data = metropolis(scene, save_state, obj_data, pair, connection_info[1], spring_priors, spring_multipliers, get_value_spring, make_proposal, niter=10)
                 trial_best = tuple([int(i) for i in trial_data[-1]])
                 trial_value = get_value_spring(scene, save_state, obj_data, pair, trial_best, whole_scene=True)
-                # print('{}\t{}\t{}'.format(pair, trial_best, trial_value))
 
-                on_prob = trial_value / (scene_prob + trial_value)
-                graph[chosen_obj][other_obj] = [on_prob, trial_best]
-                graph[other_obj][chosen_obj] = [on_prob, trial_best]
+                pin_value =  get_value_pin(scene, save_state, obj_data, pair, whole_scene=True)
+                if pin_value > trial_value:
+                    final_constraint = 'pin'
+                    on_prob = pin_value / (scene_prob + pin_value)
+                else:
+                    final_constraint = 'spring'
+                    # print('{}\t{}\t{}'.format(pair, trial_best, trial_value))
+                    on_prob = trial_value / (scene_prob + trial_value)
+                    
+
 
                 # update the constraint and parameters
                 scene.load_state(save_state)
+                # creating/editing the spring or the pin
                 if np.random.random() < on_prob and trial_best[1] > 10:
                     if pair in scene.constraints:
-                        # simply update the constraint parameters if it's already there
-                        scene.constraints[pair].rest_length = trial_best[0]
-                        scene.constraints[pair].stiffness = trial_best[1]
-                        print('Updating {} with parameters {} and prob {}'.format(pair, trial_best, trial_value))
+                        scene.remove_constraint(pair)
+                    b1, b2 = scene.bodies[pair[0]], scene.bodies[pair[1]]
+                    if final_constraint == 'spring':
+                        scene.add_spring_constraint(b1, b2, list(trial_best) + [0])
+                        print('{}: spring with parameters {} and prob {}'.format(pair, trial_best, trial_value))
+                        graph[chosen_obj][other_obj] = ['spring', trial_best]
+                        graph[other_obj][chosen_obj] = ['spring', trial_best]
                     else:
-                        # otherwise create it
-                        print('Adding {} with params {} and prob {}'.format(pair, trial_best, trial_value))
-                        scene.add_spring_constraint(scene.bodies[pair[0]], scene.bodies[pair[1]], list(trial_best) + [0])
+                        scene.add_pin_constraint(b1, b2)
+                        print('{}: pin with prob {}'.format(pair, pin_value))
+                        graph[chosen_obj][other_obj] = ['pin', trial_best]
+                        graph[other_obj][chosen_obj] = ['pin', trial_best]
                 else:
                     if pair in scene.constraints:
                         # test what happens without the constraint
                         scene.remove_constraint(pair)
                         save_state = scene.save_state()
                         new_value = get_value_scene(scene, save_state, obj_data)
-                        delete_prob = new_value / (new_value + trial_value)
+                        final_value = trial_value if final_constraint == 'spring' else pin_value
+                        delete_prob = new_value / (new_value + final_value)
                         if np.random.random() < delete_prob:
                             # potentially delete the constraint from the graph
-                            print('Deleting {}'.format(pair))
+                            print('{}: DELETE'.format(pair))
                         else:
                             # otherwise just update with the new parameters
-                            scene.add_spring_constraint(scene.bodies[pair[0]], scene.bodies[pair[1]], list(trial_best) + [0])
-                            print('Updating {} with parameters {} and prob {}'.format(pair, trial_best, trial_value))
+                            b1, b2 = scene.bodies[pair[0]], scene.bodies[pair[1]]
+                            if final_constraint == 'spring':
+                                scene.add_spring_constraint(b1, b2, list(trial_best) + [0])
+                                print('{}: spring with parameters {} and prob {}'.format(pair, trial_best, trial_value))
+                            else:
+                                scene.add_pin_constraint(b1, b2)
+                                print('{}: pin with prob {}'.format(pair, pin_value))
                 save_state = scene.save_state()
                 
                 # log values and constraints
                 val = get_value_scene(scene, save_state, obj_data)
+
+                if iteration < 50:
+                    threshold = 4
+                else:
+                    threshold = 8
+
+                if val < best_value / threshold:
+                    print('resetting')
+                    scene.reset_space()
+                    scene.add_bodies_from_rep(obj_data[0])
+                    scene.add_constraints_from_rep(best_constraints)
+                    save_state = scene.save_state()
+
                 values.append(val)
-                current_constraints = [(i, scene.constraints[i].rest_length, scene.constraints[i].stiffness) for i in scene.constraints.keys()]
+                current_constraints =[['spring' if type(scene.constraints[i]) == pymunk.constraint.DampedSpring else 'pin', i[0], i[1], [scene.constraints[i].rest_length, scene.constraints[i].stiffness, 0] if type(scene.constraints[i]) == pymunk.constraint.DampedSpring else None] for i in scene.constraints.keys()]
                 constraints.append(current_constraints)
                 if val > best_value:
                     best_value = val
@@ -304,8 +374,37 @@ def guess_scene_constraints(scene, save_state, mh=True):
                 print('correct constraints: {}'.format(con_data))
                 print('current constraints: {}'.format(list(scene.constraints.keys())))
                 print('best so far: {}'.format(best_constraints))
+                continue
+                scene.load_state(save_state)
+                for con in scene.constraints:
+                    if type(scene.constraints[con]) == pymunk.constraint.DampedSpring:
+                        t = 'spring'
+                        par = [scene.constraints[con].rest_length, scene.constraints[con].stiffness]
+                    else:
+                        t='pin'
+                    # test what happens without the constraint
+                    old_value = get_value_scene(scene, save_state, obj_data)
+                    scene.remove_constraint(con)
 
-            if iteration > 50 or best_value > 0.5:
+                    save_state = scene.save_state()
+                    new_value = get_value_scene(scene, save_state, obj_data)
+                    #final_value = trial_value if final_constraint == 'spring' else pin_value
+                    delete_prob = new_value / 2 / (new_value + old_value)
+                    if np.random.random() < delete_prob:
+                        # potentially delete the constraint from the graph
+                        print('{}: DELETE'.format(con))
+                    else:
+                        # otherwise just update with the new parameters
+                        b1, b2 = scene.bodies[con[0]], scene.bodies[con[1]]
+                        if t == 'spring':
+                            scene.add_spring_constraint(b1, b2, list(par) + [0])
+                            print('{}: spring with parameters {} and prob {}'.format(con, par, trial_value))
+                        else:
+                            scene.add_pin_constraint(b1, b2)
+                            print('{}: pin with prob {}'.format(con, pin_value))
+                    save_state = scene.save_state()
+
+            if iteration >= 100 or best_value > 0.4:
                 break
 
         mh_data = {

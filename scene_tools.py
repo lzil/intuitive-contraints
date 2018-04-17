@@ -19,7 +19,7 @@ import numpy as np
 import scipy.stats
 
 # limit for artificial simulation of scenes
-TIME_LIMIT = 240
+TIME_LIMIT = 360
 # different types of constraints
 CONSTRAINTS = {
     0: 'PIN',
@@ -80,6 +80,8 @@ class Scene:
         if self.verbose:
             print('Adding pin to {}-{}'.format(self.bodies.index(b1), self.bodies.index(b2)))
         pin_joint = pymunk.PinJoint(b1, b2, (0,0), (0,0))
+        indices = (self.bodies.index(b1), self.bodies.index(b2))
+        self.constraints[(min(indices), max(indices))] = pin_joint
         self.space.add(pin_joint)
         return pin_joint
 
