@@ -35,7 +35,7 @@ spring_multipliers = (20, 5)
 spring_start = (100, 60)
 
 
-
+# get an ordering of constraints based on how far they are from the given data
 def get_constraint_order(scene, data):
     old_locs, snapback_locs = scene.get_snapback_locs(data)
     num_obj = len(data[0])
@@ -133,6 +133,7 @@ def get_value_pin(scene, save_state, data, ids, whole_scene=True, eps=1e-6):
             cost = get_cost(old_locs, new_locs, i)
             total_cost += cost
         total_cost /= len(ids)
+    # modulation of cost by the number of constraints to minimize the number of constraints
     return np.exp(-total_cost) * (0.9 ** len(scene.constraints))
 
 
@@ -158,7 +159,7 @@ def make_proposal(params, multipliers, limits=[0, 0]):
                 break
     return new_params
 
-
+# average distances of all pairs of objects 
 def get_average_distances(dt):
 
     distances = {}
@@ -185,7 +186,7 @@ def get_average_distances(dt):
     return final_dict
 
 
-
+# for a scene with just one constraint
 def guess_single_constraint(scene, save_state, mh=True):
 
     objects_constrained = [i[1] for i in get_constraint_order(scene, obj_data)[:2]]
