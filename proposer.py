@@ -405,7 +405,7 @@ def guess_scene_constraints(scene, save_state, mh=True):
                             print('{}: pin with prob {}'.format(con, pin_value))
                     save_state = scene.save_state()
 
-            if iteration >= 100 or best_value > 0.4:
+            if iteration >= 100 or best_value > 0.3:
                 break
 
         mh_data = {
@@ -424,6 +424,11 @@ def guess_scene_constraints(scene, save_state, mh=True):
         # load from a file and just plot
         with open(os.path.join(os.path.dirname(file), '{}_metropolis.pkl'.format(file_id)), 'rb') as f:
             mh_data = pickle.load(f)
+
+        con_rep = mh_data['best_constraints']
+        # pdb.set_trace()
+        scene.add_constraints_from_rep(con_rep)
+        scene.run_and_visualize()
 
     values = mh_data['values']
 
@@ -452,11 +457,13 @@ def main(args):
     global obj_data
     global con_data
     global num_obj
+    global use_mh
 
     start_time = time.time()
     file = args['file']
     noise = args['noise']
     viz = args['visualize']
+    use_mh = args['use_params']
 
     # get file id which is determined by type of constraint and timestamp
     file_id = os.path.basename(file).split('_')[0]
@@ -479,7 +486,7 @@ def main(args):
     save_state = scene.save_state()
 
     # guess_single_constraint(scene, save_state, mh=True)
-    guess_scene_constraints(scene, save_state, mh=True)
+    guess_scene_constraints(scene, save_state, not use_mh)
 
 
 
@@ -487,6 +494,7 @@ def main(args):
 def parse_args():
     parser = argparse.ArgumentParser(description='Load scene.')
     parser.add_argument('file')
+    parser.add_argument('-p', '--use_params', action='store_true')
     parser.add_argument('-v', '--visualize', help='Visualize system.', action='store_true')
     parser.add_argument('-n', '--noise', help='amount of noise, in [collision, dynamic] form', nargs=2, type=float,default=[0,0])
     args = vars(parser.parse_args())

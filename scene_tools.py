@@ -255,7 +255,7 @@ class Scene:
                     sys.exit(0)
             self.space.debug_draw(draw_options)
             pygame.display.flip()
-            clock.tick(50)
+            clock.tick(20)
             locations.append(self.get_body_rep())
             self.space.step(1/50.0)
             self.apply_func_constraints()
@@ -279,7 +279,7 @@ class Scene:
                     sys.exit(0)
             self.space.debug_draw(draw_options)
             pygame.display.flip()
-            clock.tick(50)
+            clock.tick(20)
             self.reset_space()
             self.add_bodies_from_rep(obj_data[t])
 
