@@ -1,2 +1,12 @@
 using a neural physics engine to learn corrections to a symbolic physics engine,anarag ajay
 
+high level figuring out where the constraints are, spectral decomposition, affinity clustering, spectral clustering, josh's paper from 1994 and applying clustering
+
+visually where the deviations are happening and see where they differ, use the deviation to make a proposal
+
+summary statistics, hand-crafted heuristics from tomer 2014, approximate bayesian inference
+
+hume's attack on causality, induction, jammer. also attacked contact causality
+
+si classical mechanics
+

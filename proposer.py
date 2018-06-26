@@ -21,18 +21,11 @@ import argparse
 
 import pdb
 
-
+file = ''
 file_id = ''
 obj_data = None
 con_data = None
 num_obj = 0
-
-spring_priors = [
-    scipy.stats.norm(100, 50),  # rest length
-    scipy.stats.norm(60, 40)    # stiffness
-]
-spring_multipliers = (20, 5)
-spring_start = (100, 60)
 
 
 # get an ordering of constraints based on how far they are from the given data
@@ -49,7 +42,7 @@ def get_constraint_order(scene, data):
 
 
 # metropolis-hastings algorithm
-def metropolis(scene, save_state, data, ids, start, priors, mults, value_func, proposal_func, niter=10000, nburn=0):
+def metropolis(scene, save_state, data, ids, start, priors, mults, value_func, proposal_func, niter=MCMC_SAMPLE_NUM, nburn=0):
     current = start
     # keep list of explored data points
     value_current = value_func(scene, save_state, data, ids, current, whole_scene=False)
@@ -148,7 +141,7 @@ def get_value_scene(scene, save_state, data):
 def make_proposal(params, multipliers, limits=[0, 0]):
     assert len(params) == len(multipliers)
     new_params = []
-    for ind, p in enumerate(spring_priors):
+    for ind, p in enumerate(SPRING_PRIORS):
         while True:
             dec = np.random.normal(0,1)
             proposal_point = params[ind] + dec * multipliers[ind]
@@ -198,11 +191,11 @@ def guess_single_constraint(scene, save_state, mh=True):
 
     if mh:
 
-        trial_data = metropolis(scene, save_state, obj_data, pair, spring_start, spring_priors, spring_multipliers, get_value_spring, make_proposal, niter=200)
+        trial_data = metropolis(scene, save_state, obj_data, pair, SPRING_START, SPRING_PRIORS, SPRING_MULTS, get_value_spring, make_proposal)
         trial_best = [int(i) for i in trial_data[-1]]
         trial_value = get_value_spring(scene, save_state, obj_data, pair, trial_best)
 
-        mh_data[pair] = trial_best
+        mh_data[pair] = trial_data
         print(trial_best)
 
         with open(os.path.join(os.path.dirname(file), '{}_metropolis.pkl'.format(file_id)), 'wb') as f:
@@ -216,7 +209,7 @@ def guess_single_constraint(scene, save_state, mh=True):
 
     fig, ax = plt.subplots(1, len(mh_data), squeeze=False)
     fig.suptitle('density')
-    nbins = 20
+    nbins = 30
     #fig.hexbin(xys[0], xys[1], gridsize=nbins, cmap=fig.cm.BuGn_r)
     c = 0
     for pair, dt in mh_data.items():
@@ -239,7 +232,7 @@ def guess_scene_constraints(scene, save_state, mh=True):
     if mh:
         graph = {}
         for i in range(num_obj):
-            graph[i] = [['spring', (100, 60)]] * num_obj
+            graph[i] = [['spring', SPRING_START]] * num_obj
 
         values = []
         constraints = []
@@ -249,6 +242,7 @@ def guess_scene_constraints(scene, save_state, mh=True):
         distances = get_average_distances(obj_data)
 
         num_per_iteration = min(4, num_obj - 1)
+        num_per_iteration = 1
 
         iteration = 0
         while True:
@@ -261,11 +255,13 @@ def guess_scene_constraints(scene, save_state, mh=True):
             objects_constrained = get_constraint_order(scene, obj_data)
             # print(objects_constrained)
 
+
             # get one object to fixate on based on probability distribution of costs
             objects_constrained_probs = [i[0] for i in objects_constrained]
             objects_constrained_probs = [i / sum(objects_constrained_probs) for i in objects_constrained_probs]
             objects_constrained_sels = [i[1] for i in objects_constrained]
             chosen_obj = np.random.choice(objects_constrained_sels, p=objects_constrained_probs)
+
 
 
             # get selection of other objects to make pairings based on inverse distribution of distances
@@ -294,7 +290,7 @@ def guess_scene_constraints(scene, save_state, mh=True):
                 pair = (min(chosen_obj, other_obj), max(chosen_obj, other_obj))
 
                 # get a good setting of parameters given particular constraint
-                trial_data = metropolis(scene, save_state, obj_data, pair, connection_info[1], spring_priors, spring_multipliers, get_value_spring, make_proposal, niter=10)
+                trial_data = metropolis(scene, save_state, obj_data, pair, connection_info[1], SPRING_PRIORS, SPRING_MULTS, get_value_spring, make_proposal)
                 trial_best = tuple([int(i) for i in trial_data[-1]])
                 trial_value = get_value_spring(scene, save_state, obj_data, pair, trial_best, whole_scene=True)
 
@@ -311,7 +307,7 @@ def guess_scene_constraints(scene, save_state, mh=True):
 
                 # update the constraint and parameters
                 scene.load_state(save_state)
-                # creating/editing the spring or the pin
+                # creating/editing the spring or the pin based on what we got for the best value earlier
                 if np.random.random() < on_prob and trial_best[1] > 10:
                     if pair in scene.constraints:
                         scene.remove_constraint(pair)
@@ -364,7 +360,18 @@ def guess_scene_constraints(scene, save_state, mh=True):
                     save_state = scene.save_state()
 
                 values.append(val)
-                current_constraints =[['spring' if type(scene.constraints[i]) == pymunk.constraint.DampedSpring else 'pin', i[0], i[1], [scene.constraints[i].rest_length, scene.constraints[i].stiffness, 0] if type(scene.constraints[i]) == pymunk.constraint.DampedSpring else None] for i in scene.constraints.keys()]
+                current_constraints = [
+                    [
+                        'spring' if type(scene.constraints[i]) == pymunk.constraint.DampedSpring else 'pin',
+                        i[0],
+                        i[1],
+                        [
+                            scene.constraints[i].rest_length,
+                            scene.constraints[i].stiffness,
+                            0
+                        ] if type(scene.constraints[i]) == pymunk.constraint.DampedSpring else None
+                    ] for i in scene.constraints.keys()
+                ]
                 constraints.append(current_constraints)
                 if val > best_value:
                     best_value = val
@@ -405,7 +412,8 @@ def guess_scene_constraints(scene, save_state, mh=True):
                             print('{}: pin with prob {}'.format(con, pin_value))
                     save_state = scene.save_state()
 
-            if iteration >= 100 or best_value > 0.3:
+            if iteration >= 100 or best_value > 0.4:
+                print('Finished! Best parameters found: {}'.format(best_constraints))
                 break
 
         mh_data = {
@@ -418,7 +426,7 @@ def guess_scene_constraints(scene, save_state, mh=True):
 
         with open(os.path.join(os.path.dirname(file), '{}_metropolis.pkl'.format(file_id)), 'wb') as f:
             pickle.dump(mh_data, f)
-            print('Produced {}_metropolis.pkl'.format(file_id))
+            print('Produced {}/{}_metropolis.pkl'.format(os.path.dirname(file), file_id))
 
     else:
         # load from a file and just plot
@@ -465,9 +473,9 @@ def main(args):
     viz = args['visualize']
     use_mh = args['use_params']
 
-    # get file id which is determined by type of constraint and timestamp
+    # get file id which is determined by timestamp
     file_id = os.path.basename(file).split('_')[0]
-    con_type = os.path.dirname(file)[-1]
+    # con_type = os.path.dirname(file)[-1]
 
     with open(file, 'rb') as f:
         data = pickle.load(f)
@@ -485,8 +493,10 @@ def main(args):
     # save current state because will need to run many times later for simulations
     save_state = scene.save_state()
 
-    # guess_single_constraint(scene, save_state, mh=True)
-    guess_scene_constraints(scene, save_state, not use_mh)
+    if args['single']:
+        guess_single_constraint(scene, save_state, not use_mh)
+    else:
+        guess_scene_constraints(scene, save_state, not use_mh)
 
 
 
@@ -495,6 +505,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Load scene.')
     parser.add_argument('file')
     parser.add_argument('-p', '--use_params', action='store_true')
+    parser.add_argument('-s', '--single', help='Use single constraint solver.', action='store_true')
     parser.add_argument('-v', '--visualize', help='Visualize system.', action='store_true')
     parser.add_argument('-n', '--noise', help='amount of noise, in [collision, dynamic] form', nargs=2, type=float,default=[0,0])
     args = vars(parser.parse_args())

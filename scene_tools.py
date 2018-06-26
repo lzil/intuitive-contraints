@@ -20,23 +20,33 @@ import scipy.stats
 
 # limit for artificial simulation of scenes
 TIME_LIMIT = 360
-# different types of constraints
-CONSTRAINTS = {
-    0: 'PIN',
-    1: 'SLIDE',
-    2: 'SPRING'
-}
+
+TICK = 20
+MCMC_SAMPLE_NUM = 20
+GRAVITY = 0 #-2000.0
+ELASTICITY = 0.99
+
+SPRING_PRIORS = [
+    scipy.stats.norm(50, 50),  # rest length
+    scipy.stats.norm(90, 50)    # stiffness
+]
+SPRING_LIMITS = ((0, 100), (40, 140))
+SPRING_MULTS = (5, 5)
+SPRING_START = (50, 90)
+
+
 
 # manages the space, bodies, walls, and running of physics all in one class
 class Scene:
     def __init__(self, noise=(0,0), walls=True):
         self.space = pymunk.Space()
         self.bodies = []
-        self.space.gravity = (0.0, 0.0)
+        self.space.gravity = (0.0, GRAVITY)
         self.size = [1000, 1000]
         self.collision_types = {
-            'ball': 1,
-            'wall': 2
+            'wall': 1,
+            'ball': 2,
+            'ball_red': 3
         }
         self.noise = {
             'collision': noise[0],
@@ -48,21 +58,24 @@ class Scene:
             self.add_walls()
 
         self.constraints = {}
-        self.func_constraints = []
+        # self.func_constraints = []
 
     # add walls on the four borders of the space
     def add_walls(self):
-        bottom_wall = pymunk.Segment(self.space.static_body, (0,0), (self.size[0],0), 20)
-        left_wall = pymunk.Segment(self.space.static_body, (0,0), (0,self.size[1]), 20)
-        top_wall = pymunk.Segment(self.space.static_body, (0,self.size[1]), (self.size[0],self.size[1]), 20)
-        right_wall = pymunk.Segment(self.space.static_body, (self.size[0],self.size[1]), (self.size[0],0), 20)
+        bottom_wall = pymunk.Segment(self.space.static_body, (0,0), (self.size[0],0), 40)
+        left_wall = pymunk.Segment(self.space.static_body, (0,0), (0,self.size[1]), 40)
+        top_wall = pymunk.Segment(self.space.static_body, (0,self.size[1]), (self.size[0],self.size[1]), 40)
+        right_wall = pymunk.Segment(self.space.static_body, (self.size[0],self.size[1]), (self.size[0],0), 40)
         walls = [bottom_wall, left_wall, top_wall, right_wall]
+        for w in walls:
+            w.friction = 0.6
+            w.color = THECOLORS['grey']
         for wall in walls:
-            wall.elasticity = 0.999
+            wall.elasticity = ELASTICITY
         self.space.add([walls])
 
     # add a small ball shape and body to the space
-    def add_ball(self, pos, vel):
+    def add_ball(self, pos, vel=(0,0), col_type='ball'):
         mass = 1
         radius = 20
         moment = pymunk.moment_for_circle(mass, 0, radius)
@@ -70,8 +83,11 @@ class Scene:
         body.position = pos
         body.velocity = vel
         shape = pymunk.Circle(body, radius)
-        shape.collision_type = self.collision_types['ball']
-        shape.elasticity = 0.999
+        shape.collision_type = self.collision_types[col_type]
+        shape.color = THECOLORS['lightblue']
+        if col_type == 'ball_red':
+            shape.color=(255,100,100,0)
+        shape.elasticity = ELASTICITY
         self.space.add(body, shape)
         self.bodies.append(body)
         return body
@@ -85,21 +101,21 @@ class Scene:
         self.space.add(pin_joint)
         return pin_joint
 
-    def add_slide_constraint(self, b1, b2, params=None):
-        if params == None:
-            cur_dist = dist(b1.position, b2.position)
-            params = [random.random() * cur_dist, (1 + random.random()) * cur_dist]
+    # def add_slide_constraint(self, b1, b2, params=None):
+    #     if params == None:
+    #         cur_dist = dist(b1.position, b2.position)
+    #         params = [random.random() * cur_dist, (1 + random.random()) * cur_dist]
 
-        if self.verbose:
-            print('Adding slide to {}-{}; {}, {}'.format(self.bodies.index(b1), self.bodies.index(b2), params[0], params[1]))
-        slide_joint = pymunk.SlideJoint(b1, b2, (0,0), (0,0), params[0], params[1])
-        self.space.add(slide_joint)
-        return slide_joint
+    #     if self.verbose:
+    #         print('Adding slide to {}-{}; {}, {}'.format(self.bodies.index(b1), self.bodies.index(b2), params[0], params[1]))
+    #     slide_joint = pymunk.SlideJoint(b1, b2, (0,0), (0,0), params[0], params[1])
+    #     self.space.add(slide_joint)
+    #     return slide_joint
 
     def add_spring_constraint(self, b1, b2, params=None):
         if params == None:
-            rest_length = np.random.randint(0, 200)
-            stiffness = np.random.randint(10, 120)
+            rest_length = np.random.randint(SPRING_LIMITS[0][0], SPRING_LIMITS[0][1])
+            stiffness = np.random.randint(SPRING_LIMITS[1][0], SPRING_LIMITS[1][1])
             # damping = np.random.gamma(1, 0.5)
             damping = 0
             params = [rest_length, stiffness, damping]
@@ -133,8 +149,8 @@ class Scene:
                 rep.append(['pin', self.bodies.index(con.a), self.bodies.index(con.b), None])
             # elif type(con) == FuncConstraint:
             #     rep.append(['func', self.bodies.index(con.a), self.bodies.index(con.b), (con.func_rep)])
-            elif type(con) == pymunk.constraint.SlideJoint:
-                rep.append(['slide', self.bodies.index(con.a), self.bodies.index(con.b), (con.min, con.max)])
+            # elif type(con) == pymunk.constraint.SlideJoint:
+            #     rep.append(['slide', self.bodies.index(con.a), self.bodies.index(con.b), (con.min, con.max)])
             elif type(con) == pymunk.constraint.DampedSpring:
                 rep.append(['spring', self.bodies.index(con.a), self.bodies.index(con.b), (con.rest_length, con.stiffness, con.damping)])
         return rep
@@ -147,19 +163,19 @@ class Scene:
         return rep
 
     # given representation, add the corresponding balls
-    def add_bodies_from_rep(self,data):
+    def add_bodies_from_rep(self, data, col_type='ball'):
         for obj in data:
-            self.add_ball(obj[1], obj[2])
+            self.add_ball(obj[1], obj[2], col_type)
 
     # given representation, add the corresponding constraints
-    def add_constraints_from_rep(self,data):
+    def add_constraints_from_rep(self,data,offset=0):
         for con in data:
-            c1 = self.bodies[con[1]]
-            c2 = self.bodies[con[2]]
+            c1 = self.bodies[con[1] + offset]
+            c2 = self.bodies[con[2] + offset]
             if con[0] == 'pin':
                 self.add_pin_constraint(c1, c2, None)
-            elif con[0] == 'slide':
-                self.add_slide_constraint(c1, c2, con[3])
+            # elif con[0] == 'slide':
+            #     self.add_slide_constraint(c1, c2, con[3])
             elif con[0] == 'spring':
                 self.add_spring_constraint(c1, c2, con[3])
             # elif con[0] == 'func':
@@ -170,9 +186,9 @@ class Scene:
         return (self.get_body_rep(), self.get_constraint_rep())
 
     # load the body and constraint states from a rep
-    def load_state(self, state):
+    def load_state(self, state, col_type='ball'):
         self.reset_space()
-        self.add_bodies_from_rep(state[0])
+        self.add_bodies_from_rep(state[0], col_type)
         self.add_constraints_from_rep(state[1])
 
     # get rid of everything in the space, as if nothing had happened
@@ -203,9 +219,9 @@ class Scene:
                 gauss(self.noise['dynamic'])))
 
 
-    def apply_func_constraints(self):
-        for fcon in self.func_constraints:
-            fcon.apply_func()
+    # def apply_func_constraints(self):
+    #     for fcon in self.func_constraints:
+    #         fcon.apply_func()
 
     # run the scene forward and record locations of all moves
     def run_and_record(self, steps):
@@ -214,7 +230,7 @@ class Scene:
         for t in range(steps):
             locations.append(self.get_body_rep())
             self.space.step(1/50.0)
-            self.apply_func_constraints()
+            # self.apply_func_constraints()
             self.apply_dynamic_noise()
         return locations
 
@@ -230,7 +246,7 @@ class Scene:
             self.add_constraints_from_rep(cons)
             for i in range(sim_length):
                 self.space.step(1/50.0)
-                self.apply_func_constraints()
+                # self.apply_func_constraints()
                 self.apply_dynamic_noise()
             old_locs.append(obj_data[j * skip + sim_length])
             new_locs.append(self.get_body_rep())
@@ -239,7 +255,7 @@ class Scene:
 
 
     # run the scene forward while showing what's going on in pygame
-    def run_and_visualize(self, steps=10000, label='visualization'):
+    def run_and_visualize(self, steps=10000, label='visualization', tick=20):
         pygame.init()
         screen = pygame.display.set_mode(self.size)
         pygame.display.set_caption(label)
@@ -247,7 +263,7 @@ class Scene:
         draw_options = pymunk.pygame_util.DrawOptions(screen)
 
         self.update_collision_handler()
-        locations = []
+        # locations = []
         for t in range(steps):
             screen.fill((255,255,255))
             for event in pygame.event.get():
@@ -255,39 +271,125 @@ class Scene:
                     sys.exit(0)
             self.space.debug_draw(draw_options)
             pygame.display.flip()
-            clock.tick(20)
-            locations.append(self.get_body_rep())
+            clock.tick(TICK)
+            # locations.append(self.get_body_rep())
             self.space.step(1/50.0)
-            self.apply_func_constraints()
+            # self.apply_func_constraints()
             self.apply_dynamic_noise()
             if self.verbose and not t % 10:
                 print('step {}'.format(t))
         # pdb.set_trace()
-        return locations
+        # return locations
 
-    def visualize_obj_data(self, obj_data, label='visualization'):
-        pygame.init()
-        screen = pygame.display.set_mode(self.size)
-        pygame.display.set_caption(label)
-        clock = pygame.time.Clock()
-        draw_options = pymunk.pygame_util.DrawOptions(screen)
+    # def visualize_obj_data(self, obj_data, label='visualization'):
+    #     pygame.init()
+    #     screen = pygame.display.set_mode(self.size)
+    #     pygame.display.set_caption(label)
+    #     clock = pygame.time.Clock()
+    #     draw_options = pymunk.pygame_util.DrawOptions(screen)
 
-        for t in range(len(obj_data)):
-            screen.fill((255,255,255))
-            for event in pygame.event.get():
-                if event.type in [QUIT, K_ESCAPE]:
-                    sys.exit(0)
-            self.space.debug_draw(draw_options)
-            pygame.display.flip()
-            clock.tick(20)
-            self.reset_space()
-            self.add_bodies_from_rep(obj_data[t])
+    #     for t in range(len(obj_data)):
+    #         screen.fill((255,255,255))
+    #         for event in pygame.event.get():
+    #             if event.type in [QUIT, K_ESCAPE]:
+    #                 sys.exit(0)
+    #         self.space.debug_draw(draw_options)
+    #         pygame.display.flip()
+    #         clock.tick(TICK)
+    #         self.reset_space()
+    #         self.add_bodies_from_rep(obj_data[t])
 
             # self.space.step(1/50.0)
             # self.apply_func_constraints()
             # self.apply_dynamic_noise()
             # if self.verbose and not t % 10:
             #     print('step {}'.format(t))
+
+# from InputBox import InputBox
+
+class BuilderScene(Scene):
+    def __init__(self):
+        super(BuilderScene, self).__init__()
+
+
+    def run(self):
+        pygame.init()
+        screen = pygame.display.set_mode(self.size) 
+        clock = pygame.time.Clock()
+        draw_options = pymunk.pygame_util.DrawOptions(screen)
+
+        # input_box1 = InputBox(40, self.size[1] - 40, 80, self.size[1])
+        # input_boxes = [input_box1]
+
+        running = True
+        mode = 'pin'
+
+        candidates = []
+
+        while running:
+            screen.fill((255,255,255))
+            self.space.debug_draw(draw_options)
+            # for box in input_boxes:
+            #     box.draw(screen)
+
+            mouse_pos = pymunk.pygame_util.from_pygame(pygame.mouse.get_pos(), screen)
+            near_query = self.space.point_query_nearest(mouse_pos, 0, pymunk.ShapeFilter())
+            if mouse_pos[0] < self.size[0] - 40 and mouse_pos[0] > 40 and mouse_pos[1] < self.size[1] - 40 and mouse_pos[1] > 40:
+                press_within_boundaries = True
+            else:
+                press_within_boundaries = False
+
+            if near_query is not None:
+                shape = near_query.shape
+                if shape.body.body_type != pymunk.Body.STATIC:
+                    # TODO: make this work for not just circles
+                    r = shape.radius + 4
+                    p = pymunk.pygame_util.to_pygame(shape.body.position, screen)
+                    pygame.draw.circle(screen, THECOLORS["orange"], p, int(r), 2)
+
+            for event in pygame.event.get():
+                # for box in input_boxes:
+                #     box.handle_event(event)
+                if event.type == QUIT or \
+                    event.type == KEYDOWN and (event.key in [K_ESCAPE, K_q]):  
+                    running = False
+                elif event.type == KEYDOWN and event.key in (K_s, K_p):
+                    if event.key == K_s:
+                        mode = 'spring'
+                    elif event.key == K_p:
+                        mode = 'pin'
+                elif event.type == KEYDOWN and event.key is K_j:
+                    print(self.save_state())
+                elif event.type == pygame.MOUSEBUTTONUP and event.button == 1 and press_within_boundaries:
+                    if near_query is not None:
+                        shape = near_query.shape
+                        shape.color = THECOLORS['cadetblue']
+                        candidates.append(shape)
+                        if len(candidates) == 2:
+                            # TODO: check if a constraint already exists between the two bodies
+                            self.add_pin_constraint(candidates[0].body, candidates[1].body)
+                            for c in candidates:
+                                c.color = THECOLORS['lightblue']
+                            candidates = []
+                    else:
+                        self.add_ball(mouse_pos)
+
+                    
+                elif event.type == pygame.MOUSEBUTTONUP and event.button == 3 and press_within_boundaries:
+                    if near_query is not None:
+                        shape = near_query.shape
+                        self.space.remove(shape.body, shape)
+                        # TODO: remove all constraints involving this object
+
+            # for box in input_boxes:
+            #     box.update()
+
+            
+            
+            pygame.display.flip()
+            clock.tick(TICK)
+            self.space.step(1/50.0)
+
 
 
 
@@ -457,72 +559,76 @@ def get_cost(l1, l2, obj_id=None):
                 obj1 = l1[i][j]
                 obj2 = l2[i][j]
 
-                ddif = dist(obj1[1], obj2[1])
-                # vdif = dist(obj1[2], obj2[2])
-                vdif_norm = norm(obj1[2]) / norm(obj2[2])
-                vdif_ang = ang(obj1[2], obj2[2])
+                # ddif = dist(obj1[1], obj2[1])
+                # # vdif = dist(obj1[2], obj2[2])
+                # vdif_norm = norm(obj1[2]) / norm(obj2[2])
+                # vdif_ang = ang(obj1[2], obj2[2])
 
-                dprob = max(gauss_dist.pdf(ddif) / gauss_dist.pdf(0), 1e-200)
-                # vprob = gauss_vel.pdf(vdif)
-                vprob_norm = max(gauss_vel_norm.pdf(vdif_norm) / gauss_vel_norm.pdf(1), 1e-200)
-                vprob_ang = max(gauss_vel_ang.pdf(vdif_ang) / gauss_vel_ang.pdf(0), 1e-200)
+                # dprob = max(gauss_dist.pdf(ddif) / gauss_dist.pdf(0), 1e-200)
+                # # vprob = gauss_vel.pdf(vdif)
+                # vprob_norm = max(gauss_vel_norm.pdf(vdif_norm) / gauss_vel_norm.pdf(1), 1e-200)
+                # vprob_ang = max(gauss_vel_ang.pdf(vdif_ang) / gauss_vel_ang.pdf(0), 1e-200)
 
-                # tdif = np.log(dprob) + np.log(vprob)
-                # tdif = dprob * vprob
-                tdif = np.log(vprob_norm) + np.log(vprob_ang) + np.log(dprob)
-                # print('old', dprob, vprob)
-                #print('new', dprob, vprob_norm, vprob_ang)
+                # # tdif = np.log(dprob) + np.log(vprob)
+                # # tdif = dprob * vprob
+                # tdif = np.log(vprob_norm) + np.log(vprob_ang) + np.log(dprob)
+                # # print('old', dprob, vprob)
+                # #print('new', dprob, vprob_norm, vprob_ang)
+
+                tdif = get_tdif(obj1, obj2)
 
                 running_cost += tdif
-        elif type(obj_id) == tuple:
-            obj1_1 = l1[i][obj_id[0]]
-            obj2_1 = l1[i][obj_id[1]]
-            obj1_2 = l2[i][obj_id[0]]
-            obj2_2 = l2[i][obj_id[1]]
+        # elif type(obj_id) == tuple:
+        #     obj1_1 = l1[i][obj_id[0]]
+        #     obj2_1 = l1[i][obj_id[1]]
+        #     obj1_2 = l2[i][obj_id[0]]
+        #     obj2_2 = l2[i][obj_id[1]]
 
-            ddif_1 = sub_vec(obj1_1[1], obj2_1[1])
-            ddif_2 = sub_vec(obj1_2[1], obj2_2[1])
-            ddif = dist(ddif_1, ddif_2)
-
-
-            # ddif = dist(obj1_1[1], obj2[1])
-            # vdif = dist(obj1[2], obj2[2])
-            vdif_1 = sub_vec(obj1_1[2], obj2_1[2])
-            vdif_2 = sub_vec(obj1_2[2], obj2_2[2])
-
-            vdif_norm = norm(vdif_1) / norm(vdif_2)
-            vdif_ang = ang(vdif_1, vdif_2)
+        #     ddif_1 = sub_vec(obj1_1[1], obj2_1[1])
+        #     ddif_2 = sub_vec(obj1_2[1], obj2_2[1])
+        #     ddif = dist(ddif_1, ddif_2)
 
 
-            dprob = max(gauss_dist.pdf(ddif) / gauss_dist.pdf(0), 1e-200)
-            vprob_norm = max(gauss_vel_norm.pdf(vdif_norm) / gauss_vel_norm.pdf(1), 1e-200)
-            vprob_ang = max(gauss_vel_ang.pdf(vdif_ang) / gauss_vel_ang.pdf(0), 1e-200)
+        #     # ddif = dist(obj1_1[1], obj2[1])
+        #     # vdif = dist(obj1[2], obj2[2])
+        #     vdif_1 = sub_vec(obj1_1[2], obj2_1[2])
+        #     vdif_2 = sub_vec(obj1_2[2], obj2_2[2])
+
+        #     vdif_norm = norm(vdif_1) / norm(vdif_2)
+        #     vdif_ang = ang(vdif_1, vdif_2)
+
+
+        #     dprob = max(gauss_dist.pdf(ddif) / gauss_dist.pdf(0), 1e-200)
+        #     vprob_norm = max(gauss_vel_norm.pdf(vdif_norm) / gauss_vel_norm.pdf(1), 1e-200)
+        #     vprob_ang = max(gauss_vel_ang.pdf(vdif_ang) / gauss_vel_ang.pdf(0), 1e-200)
             
 
-            # tdif = dprob * vprob * 1e5
-            # print(vprob_norm, vprob_ang, dprob)
-            tdif = np.log(vprob_norm) + np.log(vprob_ang) + np.log(dprob)
-            running_cost += tdif
+        #     # tdif = dprob * vprob * 1e5
+        #     # print(vprob_norm, vprob_ang, dprob)
+        #     tdif = np.log(vprob_norm) + np.log(vprob_ang) + np.log(dprob)
+        #     running_cost += tdif
         else:
             obj1 = l1[i][obj_id]
             obj2 = l2[i][obj_id]
 
-            ddif = dist(obj1[1], obj2[1])
-            # vdif = dist(obj1[2], obj2[2])
-            vdif_norm = norm(obj1[2]) / norm(obj2[2])
-            vdif_ang = ang(obj1[2], obj2[2])
+            # ddif = dist(obj1[1], obj2[1])
+            # # vdif = dist(obj1[2], obj2[2])
+            # vdif_norm = norm(obj1[2]) / norm(obj2[2])
+            # vdif_ang = ang(obj1[2], obj2[2])
 
 
-            dprob = max(gauss_dist.pdf(ddif) / gauss_dist.pdf(0), 1e-200)
-            vprob_norm = max(gauss_vel_norm.pdf(vdif_norm) / gauss_vel_norm.pdf(1), 1e-200)
-            vprob_ang = max(gauss_vel_ang.pdf(vdif_ang) / gauss_vel_ang.pdf(0), 1e-200)
+            # dprob = max(gauss_dist.pdf(ddif) / gauss_dist.pdf(0), 1e-200)
+            # vprob_norm = max(gauss_vel_norm.pdf(vdif_norm) / gauss_vel_norm.pdf(1), 1e-200)
+            # vprob_ang = max(gauss_vel_ang.pdf(vdif_ang) / gauss_vel_ang.pdf(0), 1e-200)
             
 
-            # tdif = dprob * vprob * 1e5
-            # print(vprob_norm, vprob_ang, dprob)
-            tdif = np.log(vprob_norm) + np.log(vprob_ang) + np.log(dprob)
-            # print(tdif)
-            #tdif = vprob_norm * vprob_ang * dprob * 1e5
+            # # tdif = dprob * vprob * 1e5
+            # # print(vprob_norm, vprob_ang, dprob)
+            # tdif = np.log(vprob_norm) + np.log(vprob_ang) + np.log(dprob)
+            # # print(tdif)
+            # #tdif = vprob_norm * vprob_ang * dprob * 1e5
+
+            tdif = get_tdif(obj1, obj2)
             
             running_cost += tdif
     if obj_id == None:
@@ -530,6 +636,25 @@ def get_cost(l1, l2, obj_id=None):
     else:
         #pdb.set_trace()
         return -running_cost/num_steps
+
+
+
+def get_tdif(obj1, obj2):
+    ddif = dist(obj1[1], obj2[1])
+    # vdif = dist(obj1[2], obj2[2])
+    vdif_norm = norm(obj1[2]) / norm(obj2[2])
+    vdif_ang = ang(obj1[2], obj2[2])
+
+    dprob = max(gauss_dist.pdf(ddif) / gauss_dist.pdf(0), 1e-200)
+    # vprob = gauss_vel.pdf(vdif)
+    vprob_norm = max(gauss_vel_norm.pdf(vdif_norm) / gauss_vel_norm.pdf(1), 1e-200)
+    vprob_ang = max(gauss_vel_ang.pdf(vdif_ang) / gauss_vel_ang.pdf(0), 1e-200)
+
+    # tdif = np.log(dprob) + np.log(vprob)
+    # tdif = dprob * vprob
+    tdif = np.log(vprob_norm) + np.log(vprob_ang) + np.log(dprob)
+
+    return tdif
 
 
 

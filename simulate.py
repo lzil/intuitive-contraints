@@ -16,12 +16,24 @@ from scene_tools import *
 import argparse
 
 def main(args):
-    con_type = args['constraint']
-    num_constraints = args['num_constraints']
+    con_type = 'mixed'
+
     num_obj = args['balls']
     viz = args['visualize']
     reps = args['number']
     noise = args['noise']
+
+    max_degree = args['max_degree']
+    if max_degree == None:
+        max_degree = num_obj - 1
+    num_constraints = args['num_constraints']
+    assert num_constraints >= 0 and num_constraints <= num_obj * (num_obj - 1) / 2 and num_constraints <= num_obj * max_degree // 2
+    num_pin_constraints = args['num_pin_constraints']
+    if num_pin_constraints is None:
+        num_pin_constraints = np.random.randint(0, num_constraints)
+    assert num_pin_constraints >= 0 and num_pin_constraints <= num_constraints
+    num_spring_constraints = num_constraints - num_pin_constraints
+
 
     scene = Scene(noise)
 
@@ -29,46 +41,69 @@ def main(args):
         
         scene.reset_space()
         # generate some random positions of balls in the scene
-        pos = np.random.randint(300, 700, [num_obj, 2])
-        vel = np.random.randint(-500, 500, [num_obj, 2])
+        pos = np.random.randint(350, 650, [num_obj, 2])
+        vel = np.random.randint(-200, 200, [num_obj, 2])
         bodies = [scene.add_ball(pos[i], vel[i]) for i in range(num_obj)]
 
-        # choose two shapes to be constrained by something
-        if num_constraints > num_obj * (num_obj - 1) / 2:
-            print('You want too many constraints. Exiting')
-            sys.exit()
+        distances = []
+        for i in range(num_obj):
+            for j in range(i + 1, num_obj):
+                distances.append((dist(bodies[i].position, bodies[j].position), (i, j)))
 
-        constraints = []
-        for i in range(num_constraints):
-            while True:
-                cs = set(np.random.choice(bodies, 2, False))
-                if cs not in constraints:
-                    constraints.append(cs)
-                    break
-        print(constraints)
-        # if num_obj <= 1:
-        #     con_type = 'none'
-        # else:
-        #     cs = np.random.choice(bodies, 2, False)
+        other_probs, other_ids = zip(*distances)
+        other_probs = [1/i for i in other_probs]
+        other_probs = [i / sum(other_probs) for i in other_probs]
+        chosen_constraints = [other_ids[i] for i in np.random.choice(len(other_probs), p=other_probs, size=len(other_probs), replace=False)]
 
-        for cs in constraints:
-            cs = list(cs)
-            if con_type == 'none':
-                pass
-            elif con_type == 'pin':
-                scene.add_pin_constraint(cs[0], cs[1])
-            elif con_type == 'slide':
-                scene.add_slide_constraint(cs[0], cs[1])
-            elif con_type == 'spring':
-                scene.add_spring_constraint(cs[0], cs[1])
-            # elif con_type == 'func':
-            #     scene.add_func_constraint(cs[0], cs[1])
-        # else:
-        #     raise ValueError("non-valid constraint type")
+        use_counts = [0] * num_obj
+        filtered_constraints = []
+        for con in chosen_constraints:
+            if use_counts[con[0]] + 1 <= max_degree and use_counts[con[1]] + 1 <= max_degree:
+                use_counts[con[0]] += 1
+                use_counts[con[1]] += 1
+                filtered_constraints.append(con)
+
+        final_constraints = filtered_constraints[:num_constraints]
+        #random.shuffle(final_constraints)
+
+        for i in range(num_pin_constraints):
+            pair = final_constraints[i]
+            obj1, obj2 = [scene.bodies[j] for j in pair]
+            scene.add_pin_constraint(obj1, obj2)
+        for i in range(num_spring_constraints):
+            pair = final_constraints[num_pin_constraints + i]
+            obj1, obj2 = [scene.bodies[j] for j in pair]
+            scene.add_spring_constraint(obj1, obj2)
+
+
+        # constraints = []
+        # for i in range(num_constraints):
+        #     while True:
+        #         cs = set(np.random.choice(bodies, 2, False))
+        #         use_count = [0,0]
+        #         cs_list = list(cs)
+        #         for j in constraints:
+        #             if cs_list[0] in j:
+        #                 use_count[0] += 1
+        #             if cs_list[1] in j:
+        #                 use_count[1] += 1
+        #         if use_count[0] >= max_degree or use_count[1] >= max_degree:
+        #             continue
+                        
+        #         if cs not in constraints:
+        #             constraints.append(cs)
+        #             break
+
+        # for i in range(num_pin_constraints):
+        #     cs = list(constraints[i])
+        #     scene.add_pin_constraint(cs[0], cs[1])
+        # for i in range(num_spring_constraints):
+        #     cs = list(constraints[num_pin_constraints + i])
+        #     scene.add_spring_constraint(cs[0], cs[1])
 
         # run the physics simulation forward
         if viz:
-            locations = scene.run_and_visualize(label='multiple_ball')
+            locations = scene.run_and_visualize(label='constraints simulation')
         else:
             locations = scene.run_and_record(steps=TIME_LIMIT)
 
@@ -91,7 +126,6 @@ def main(args):
             save_data = {'obj': locations, 'con': constraints}
             pickle.dump(save_data, f)
             print('Saved {}'.format(dt_name))
-            # print(save_data)
 
 
         # get mutual distances and plot them
@@ -120,9 +154,11 @@ def main(args):
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Constraint system arguments.')
-    parser.add_argument('constraint', help='Type of constraint system.')
+    parser.add_argument('-f', '--file', help='Input json path')
     parser.add_argument('-b', '--balls', help='Number of balls.', type=int)
     parser.add_argument('-c', '--num_constraints', help='Number of constraints', type=int, default=1)
+    parser.add_argument('-p', '--num_pin_constraints', help='Number of pin constraints', type=int)
+    parser.add_argument('-d', '--max_degree', help='Maximum degree per object', type=int)
     parser.add_argument('-v', '--visualize', help='Visualize system.', action='store_true')
     parser.add_argument('-n', '--noise', help='amount of noise, in [collision, dynamic] form', nargs=2, type=float, default=[0,0])
     parser.add_argument('--number', type=int, help='Number of scenes to generate.', default=1)

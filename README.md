@@ -6,7 +6,7 @@
 - pymc3
 
 To produce something that looks like balls moving around under some constraint:
-`python multiple_ball.py spring -b 4 -v`
+`python simulate.py spring -b 4 -v`
 
 Wait for it to end, and you'll see that it saves the data from that run under `stimuli/spring/XYZ_real.pkl`.
 
