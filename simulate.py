@@ -16,8 +16,6 @@ from scene_tools import *
 import argparse
 
 def main(args):
-    con_type = 'mixed'
-
     num_obj = args['balls']
     viz = args['visualize']
     reps = args['number']
@@ -35,20 +33,26 @@ def main(args):
     num_spring_constraints = num_constraints - num_pin_constraints
 
 
-    scene = Scene(noise)
+
+
+    b_scene = BuilderScene()
+
+
+    # scene = Scene(noise)
 
     for _ in range(reps):
         
-        scene.reset_space()
-        # generate some random positions of balls in the scene
+        b_scene.reset_space()
+        # generate some random positions of balls in the b_scene
         pos = np.random.randint(350, 650, [num_obj, 2])
         vel = np.random.randint(-200, 200, [num_obj, 2])
-        bodies = [scene.add_ball(pos[i], vel[i]) for i in range(num_obj)]
+
+        balls = [b_scene.add_ball(pos[i], vel[i]) for i in range(num_obj)]
 
         distances = []
         for i in range(num_obj):
             for j in range(i + 1, num_obj):
-                distances.append((dist(bodies[i].position, bodies[j].position), (i, j)))
+                distances.append((dist(balls[i].position, balls[j].position), (i, j)))
 
         other_probs, other_ids = zip(*distances)
         other_probs = [1/i for i in other_probs]
@@ -68,13 +72,14 @@ def main(args):
 
         for i in range(num_pin_constraints):
             pair = final_constraints[i]
-            obj1, obj2 = [scene.bodies[j] for j in pair]
-            scene.add_pin_constraint(obj1, obj2)
+            obj1, obj2 = [balls[j] for j in pair]
+            b_scene.add_pin_constraint(obj1, obj2)
         for i in range(num_spring_constraints):
             pair = final_constraints[num_pin_constraints + i]
-            obj1, obj2 = [scene.bodies[j] for j in pair]
-            scene.add_spring_constraint(obj1, obj2)
+            obj1, obj2 = [balls[j] for j in pair]
+            b_scene.add_spring_constraint(obj1, obj2)
 
+        b_scene.set_body_data()
 
         # constraints = []
         # for i in range(num_constraints):
@@ -102,53 +107,54 @@ def main(args):
         #     scene.add_spring_constraint(cs[0], cs[1])
 
         # run the physics simulation forward
+        save_space = b_scene.get_space()
+        r_scene = SimulationScene(space=save_space)
         if viz:
-            locations = scene.run_and_visualize(label='constraints simulation')
+            locations = r_scene.run_and_visualize(label='constraints simulation')
         else:
-            locations = scene.run_and_record(steps=TIME_LIMIT)
+            locations = r_scene.run_and_record(steps=TIME_LIMIT)
 
             assert len(locations) == TIME_LIMIT
 
         # save the simulation data; id is current time
         now = int(time.time())
 
-        stimuli_folder = os.path.join('stimuli', con_type) 
+        stimuli_folder = os.path.join('stimuli') 
         if not os.path.exists(stimuli_folder):
             os.makedirs(stimuli_folder)
 
-        plots_folder = os.path.join('plots', con_type)
-        if not os.path.exists(plots_folder):
-            os.makedirs(plots_folder)
+        # plots_folder = os.path.join('plots', con_type)
+        # if not os.path.exists(plots_folder):
+        #     os.makedirs(plots_folder)
 
-        dt_name = os.path.join(stimuli_folder, '{}_real.pkl'.format(now))
-        with open(dt_name, 'wb') as f:
-            constraints = scene.get_constraint_rep()
-            save_data = {'obj': locations, 'con': constraints}
+        data_name = os.path.join(stimuli_folder, '{}_real.pkl'.format(now))
+        with open(data_name, 'wb') as f:
+            save_data = {'space': save_space, 'locs': locations}
             pickle.dump(save_data, f)
-            print('Saved {}'.format(dt_name))
+            print('Saved {}'.format(data_name))
 
 
         # get mutual distances and plot them
-        distances = {}
-        for t in locations:
-            for i in range(num_obj):
-                for j in range(i + 1, num_obj):
-                    d = dist(t[i][1], t[j][1])
-                    if (i,j) in distances:
-                        distances[(i,j)].append(d)
-                    else:
-                        distances[(i,j)] = [d]
+        # distances = {}
+        # for t in locations:
+        #     for i in range(num_obj):
+        #         for j in range(i + 1, num_obj):
+        #             d = dist(t[i][1], t[j][1])
+        #             if (i,j) in distances:
+        #                 distances[(i,j)].append(d)
+        #             else:
+        #                 distances[(i,j)] = [d]
 
-        fig = plt.figure()
-        plt.title('pairwise object distances')
-        plt.xlabel('timestep')
-        plt.ylabel('distance')
-        for pair, d in distances.items():
-            plt.plot(d, label=str(pair))
-        plt.legend(loc='lower right')
-        fig_name = os.path.join(plots_folder, '{}_real.png'.format(now))
-        print('Saved ' + fig_name)
-        plt.savefig(fig_name)
+        # fig = plt.figure()
+        # plt.title('pairwise object distances')
+        # plt.xlabel('timestep')
+        # plt.ylabel('distance')
+        # for pair, d in distances.items():
+        #     plt.plot(d, label=str(pair))
+        # plt.legend(loc='lower right')
+        # fig_name = os.path.join(plots_folder, '{}_real.png'.format(now))
+        # print('Saved ' + fig_name)
+        # plt.savefig(fig_name)
 
     
 

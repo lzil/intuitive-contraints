@@ -36,101 +36,65 @@ SPRING_START = (50, 90)
 
 
 
+SPRINGS = {
+    'short': (30, 120, 1),
+    'medium': (60, 90, 1),
+    'long': (90, 60, 1)
+}
+
+COL_TYPES = {
+    'wall': 1,
+    'normal': 2,
+    'ball_red': 3
+}
+
+
+
 # manages the space, bodies, walls, and running of physics all in one class
 class Scene:
-    def __init__(self, noise=(0,0), walls=True):
-        self.space = pymunk.Space()
-        self.bodies = []
-        self.space.gravity = (0.0, GRAVITY)
+    def __init__(self, space=None, noise=(0,0), walls=True):
         self.size = [1000, 1000]
-        self.collision_types = {
-            'wall': 1,
-            'ball': 2,
-            'ball_red': 3
-        }
-        self.noise = {
-            'collision': noise[0],
-            'dynamic': noise[1]
-        }
+        if noise[0] == 0 and noise[1] == 0:
+            self.noise = None
+        else:
+            self.noise = {
+                'collision': noise[0],
+                'dynamic': noise[1]
+            }
+        
+        if space:
+            self.load_space(space)
+        else:
+            self.space = pymunk.Space()
+            self.space.gravity = (0.0, GRAVITY)
+            if walls:
+                self.add_walls()
+
         self.verbose = False
         self.update_collision_handler()
-        if walls:
-            self.add_walls()
-
-        self.constraints = {}
+        
+        # self.constraints = {}
         # self.func_constraints = []
+
+    def load_space(self, space):
+        self.space = space.copy()
+
+    def get_space(self):
+        return self.space.copy()
 
     # add walls on the four borders of the space
     def add_walls(self):
-        bottom_wall = pymunk.Segment(self.space.static_body, (0,0), (self.size[0],0), 40)
-        left_wall = pymunk.Segment(self.space.static_body, (0,0), (0,self.size[1]), 40)
-        top_wall = pymunk.Segment(self.space.static_body, (0,self.size[1]), (self.size[0],self.size[1]), 40)
-        right_wall = pymunk.Segment(self.space.static_body, (self.size[0],self.size[1]), (self.size[0],0), 40)
+        bottom_wall = pymunk.Segment(self.space.static_body, (0,0), (self.size[0],0), 20)
+        left_wall = pymunk.Segment(self.space.static_body, (0,0), (0,self.size[1]), 20)
+        top_wall = pymunk.Segment(self.space.static_body, (0,self.size[1]), (self.size[0],self.size[1]), 20)
+        right_wall = pymunk.Segment(self.space.static_body, (self.size[0],self.size[1]), (self.size[0],0), 20)
         walls = [bottom_wall, left_wall, top_wall, right_wall]
         for w in walls:
             w.friction = 0.6
+            w.elasticity = ELASTICITY
             w.color = THECOLORS['grey']
-        for wall in walls:
-            wall.elasticity = ELASTICITY
-        self.space.add([walls])
+        self.space.add(walls)
 
-    # add a small ball shape and body to the space
-    def add_ball(self, pos, vel=(0,0), col_type='ball'):
-        mass = 1
-        radius = 20
-        moment = pymunk.moment_for_circle(mass, 0, radius)
-        body = pymunk.Body(mass, moment)
-        body.position = pos
-        body.velocity = vel
-        shape = pymunk.Circle(body, radius)
-        shape.collision_type = self.collision_types[col_type]
-        shape.color = THECOLORS['lightblue']
-        if col_type == 'ball_red':
-            shape.color=(255,100,100,0)
-        shape.elasticity = ELASTICITY
-        self.space.add(body, shape)
-        self.bodies.append(body)
-        return body
-
-    def add_pin_constraint(self, b1, b2, params=None):
-        if self.verbose:
-            print('Adding pin to {}-{}'.format(self.bodies.index(b1), self.bodies.index(b2)))
-        pin_joint = pymunk.PinJoint(b1, b2, (0,0), (0,0))
-        indices = (self.bodies.index(b1), self.bodies.index(b2))
-        self.constraints[(min(indices), max(indices))] = pin_joint
-        self.space.add(pin_joint)
-        return pin_joint
-
-    # def add_slide_constraint(self, b1, b2, params=None):
-    #     if params == None:
-    #         cur_dist = dist(b1.position, b2.position)
-    #         params = [random.random() * cur_dist, (1 + random.random()) * cur_dist]
-
-    #     if self.verbose:
-    #         print('Adding slide to {}-{}; {}, {}'.format(self.bodies.index(b1), self.bodies.index(b2), params[0], params[1]))
-    #     slide_joint = pymunk.SlideJoint(b1, b2, (0,0), (0,0), params[0], params[1])
-    #     self.space.add(slide_joint)
-    #     return slide_joint
-
-    def add_spring_constraint(self, b1, b2, params=None):
-        if params == None:
-            rest_length = np.random.randint(SPRING_LIMITS[0][0], SPRING_LIMITS[0][1])
-            stiffness = np.random.randint(SPRING_LIMITS[1][0], SPRING_LIMITS[1][1])
-            # damping = np.random.gamma(1, 0.5)
-            damping = 0
-            params = [rest_length, stiffness, damping]
-        if self.verbose:
-            print('Adding spring to {}-{}; {}, {}'.format(self.bodies.index(b1), self.bodies.index(b2), params[0], params[1]))
-        indices = (self.bodies.index(b1), self.bodies.index(b2))
-        spring_joint = pymunk.DampedSpring(b1, b2, (0,0), (0,0), params[0], params[1], 0)
-        self.constraints[(min(indices), max(indices))] = spring_joint
-        self.space.add(spring_joint)
-        return spring_joint
-
-    def remove_constraint(self, pair):
-        con = self.constraints[pair]
-        self.space.remove(con)
-        del self.constraints[pair]
 
 
     # def add_func_constraint(self, b1, b2, params=None):
@@ -140,66 +104,12 @@ class Scene:
     #     return func_joint
 
 
-
-    # returns representation of the constraints in the scene
-    def get_constraint_rep(self):
-        rep = []
-        for con in self.space.constraints:
-            if type(con) == pymunk.constraint.PinJoint:
-                rep.append(['pin', self.bodies.index(con.a), self.bodies.index(con.b), None])
-            # elif type(con) == FuncConstraint:
-            #     rep.append(['func', self.bodies.index(con.a), self.bodies.index(con.b), (con.func_rep)])
-            # elif type(con) == pymunk.constraint.SlideJoint:
-            #     rep.append(['slide', self.bodies.index(con.a), self.bodies.index(con.b), (con.min, con.max)])
-            elif type(con) == pymunk.constraint.DampedSpring:
-                rep.append(['spring', self.bodies.index(con.a), self.bodies.index(con.b), (con.rest_length, con.stiffness, con.damping)])
-        return rep
-
-    # returns representation of the bodies (balls) in the scene
-    def get_body_rep(self):
-        rep = []
-        for i, body in enumerate(self.bodies):
-            rep.append((i, tuple(body.position), tuple(body.velocity)))
-        return rep
-
-    # given representation, add the corresponding balls
-    def add_bodies_from_rep(self, data, col_type='ball'):
-        for obj in data:
-            self.add_ball(obj[1], obj[2], col_type)
-
-    # given representation, add the corresponding constraints
-    def add_constraints_from_rep(self,data,offset=0):
-        for con in data:
-            c1 = self.bodies[con[1] + offset]
-            c2 = self.bodies[con[2] + offset]
-            if con[0] == 'pin':
-                self.add_pin_constraint(c1, c2, None)
-            # elif con[0] == 'slide':
-            #     self.add_slide_constraint(c1, c2, con[3])
-            elif con[0] == 'spring':
-                self.add_spring_constraint(c1, c2, con[3])
-            # elif con[0] == 'func':
-            #     self.add_func_constraint(c1, c2, con[3])
-
-    # returns a whole representation of the balls in the space
-    def save_state(self):
-        return (self.get_body_rep(), self.get_constraint_rep())
-
-    # load the body and constraint states from a rep
-    def load_state(self, state, col_type='ball'):
-        self.reset_space()
-        self.add_bodies_from_rep(state[0], col_type)
-        self.add_constraints_from_rep(state[1])
-
-    # get rid of everything in the space, as if nothing had happened
-    def reset_space(self):
-        self.bodies = []
-        self.constraints = {}
-        self.space.remove(self.space.bodies, self.space.shapes, self.space.constraints)
-        self.add_walls()
+    
 
     # add collision noise to the space
     def update_collision_handler(self):
+        if self.noise is None:
+            return
         h = self.space.add_default_collision_handler()
         def pre_solve(arbiter, space, data):
             dt = arbiter.contact_point_set
@@ -213,7 +123,9 @@ class Scene:
 
     # hit all balls around by a little bit
     def apply_dynamic_noise(self):
-        for obj in self.bodies:
+        if self.noise is None:
+            return
+        for obj in self.space.bodies:
             obj.apply_impulse_at_local_point(
                 (gauss(self.noise['dynamic']),
                 gauss(self.noise['dynamic'])))
@@ -261,7 +173,6 @@ class Scene:
         pygame.display.set_caption(label)
         clock = pygame.time.Clock()
         draw_options = pymunk.pygame_util.DrawOptions(screen)
-
         self.update_collision_handler()
         # locations = []
         for t in range(steps):
@@ -305,90 +216,195 @@ class Scene:
             # if self.verbose and not t % 10:
             #     print('step {}'.format(t))
 
-# from InputBox import InputBox
+
+
+class SimulationScene(Scene):
+    def __init__(self, *args, **kwargs):
+        super(SimulationScene, self).__init__(*args, **kwargs)
+        dynamic_bodies = list(filter(lambda b: b.body_type is pymunk.Body.DYNAMIC, self.space.bodies))
+        self.bodies = [None] * len(dynamic_bodies)
+        for b in dynamic_bodies:
+            self.bodies[b.udata] = b
+        self.constraints = self.get_constraints()
+
+
+    def get_constraints(self):
+        constraints = {}
+        for b in self.bodies:
+            for c in b.constraints:
+                cb = (self.bodies.index(c.a), self.bodies.index(c.b))
+                constraints[(min(cb), max(cb))] = c
+        return constraints
+
+    
+
+    # returns representation of the bodies in the scene
+    def get_body_rep(self):
+        rep = []
+        for i, body in enumerate(self.bodies):
+            rep.append((i, tuple(body.position), tuple(body.velocity)))
+        return rep
+
+    # returns representation of the bodies in the scene
+    def get_constraint_rep(self):
+        rep = []
+        for pair, con in self.constraints.items():
+            if type(con) == pymunk.constraint.PinJoint:
+                rep.append(['pin', pair[0], pair[1], None])
+            elif type(con) == pymunk.constraint.DampedSpring:
+                rep.append(['spring', pair[0], pair[1], (con.rest_length, con.stiffness, con.damping)])
+        return rep
+
+    def update_body_locations(self, dt):
+        for i, body in enumerate(self.bodies):
+            body.position = dt[i][1]
+            self.space.reindex_shapes_for_body(body)
+
+
+    # def get_rep(self):
+    #     dynamic_bodies = list(filter(lambda b: b.body_type is pymunk.Body.DYNAMIC, self.space.bodies))
+    #     for con in self.space.constraints:
+    #         if type(con) == pymunk.constraint.PinJoint:
+    #             rep.append(['pin', bodies.index(con.a), bodies.index(con.b), None])
+    #         # elif type(con) == FuncConstraint:
+    #         #     rep.append(['func', self.bodies.index(con.a), self.bodies.index(con.b), (con.func_rep)])
+    #         # elif type(con) == pymunk.constraint.SlideJoint:
+    #         #     rep.append(['slide', self.bodies.index(con.a), self.bodies.index(con.b), (con.min, con.max)])
+    #         elif type(con) == pymunk.constraint.DampedSpring:
+    #             rep.append(['spring', bodies.index(con.a), bodies.index(con.b), (con.rest_length, con.stiffness, con.damping)])
+    #     return dynamic_bodies, rep
+
+    # def add_slide_constraint(self, b1, b2, params=None):
+    #     if params == None:
+    #         cur_dist = dist(b1.position, b2.position)
+    #         params = [random.random() * cur_dist, (1 + random.random()) * cur_dist]
+
+    #     if self.verbose:
+    #         print('Adding slide to {}-{}; {}, {}'.format(self.bodies.index(b1), self.bodies.index(b2), params[0], params[1]))
+    #     slide_joint = pymunk.SlideJoint(b1, b2, (0,0), (0,0), params[0], params[1])
+    #     self.space.add(slide_joint)
+    #     return slide_joint
+
+    def add_pin_constraint(self, b1, b2, params=None):
+        if self.verbose:
+            print('Adding pin to {}-{}'.format(self.bodies.index(b1), self.bodies.index(b2)))
+        pin_joint = pymunk.PinJoint(b1, b2, (0,0), (0,0))
+        indices = (self.bodies.index(b1), self.bodies.index(b2))
+        self.constraints[(min(indices), max(indices))] = pin_joint
+        self.space.add(pin_joint)
+        return pin_joint
+
+    def add_spring_constraint(self, b1, b2, params=None):
+        if params == None:
+            rest_length = np.random.randint(SPRING_LIMITS[0][0], SPRING_LIMITS[0][1])
+            stiffness = np.random.randint(SPRING_LIMITS[1][0], SPRING_LIMITS[1][1])
+            # damping = np.random.gamma(1, 0.5)
+            damping = 0
+            params = [rest_length, stiffness, damping]
+        if self.verbose:
+            print('Adding spring to {}-{}; {}, {}'.format(self.bodies.index(b1), self.bodies.index(b2), params[0], params[1]))
+        # indices = (self.bodies.index(b1), self.bodies.index(b2))
+        spring_joint = pymunk.DampedSpring(b1, b2, (0,0), (0,0), params[0], params[1], 0)
+        # self.constraints[(min(indices), max(indices))] = spring_joint
+        self.space.add(spring_joint)
+        return spring_joint
+
+
+    def remove_constraint(self, pair):
+        con = self.constraints[pair]
+        self.space.remove(con)
+        del self.constraints[pair]
+
+
 
 class BuilderScene(Scene):
-    def __init__(self):
-        super(BuilderScene, self).__init__()
+    def __init__(self, *args, **kwargs):
+        super(BuilderScene, self).__init__(*args, **kwargs)
+
+    # add a small ball shape and body to the space
+    def add_ball(self, pos, vel=(0,0), r=20, col_type='normal'):
+        mass = 1
+        radius = r
+        moment = pymunk.moment_for_circle(mass, 0, radius)
+        body = pymunk.Body(mass, moment)
+        body.position = pos
+        body.velocity = vel
+        shape = pymunk.Circle(body, radius)
+        shape.collision_type = COL_TYPES[col_type]
+        shape.color = THECOLORS['lightblue']
+        if col_type == 'ball_red':
+            shape.color=(255,100,100,0)
+        shape.elasticity = ELASTICITY
+        self.space.add(body, shape)
+        # self.bodies.append(body)
+        return body
+
+    def add_block(self, pos1, pos2=None, vel=(0,0), col_type='normal', r=20):
+        mass = 1
+        if pos2 is None:
+            rs = [(-r, -r), (-r, r), (r, r), (r, -r)]
+            moment = pymunk.moment_for_box(mass, (r*2, r*2))
+            body = pymunk.Body(mass, moment)
+            body.position = pos1
+        else:
+            w, h = sub_vec(pos2, pos1)
+            w, h = max(10, abs(w)), max(10, abs(h))
+            rs = [(-w, -h), (-w, h), (w, h), (w, -h)]
+            moment = pymunk.moment_for_box(mass, sub_vec(pos2, pos1))
+            body = pymunk.Body(mass, moment)
+            body.position = avg_vec(pos1, pos2)
+        body.velocity = vel
+        shape = pymunk.Poly(body, rs)
+        shape.collision_type = COL_TYPES[col_type]
+        shape.color = THECOLORS['lightblue']
+        shape.elasticity = ELASTICITY
+        self.space.add(body, shape)
+        return body
+
+    def add_pin_constraint(self, b1, b2, params=None):
+        if self.verbose:
+            print('Adding pin to {}-{}'.format(self.bodies.index(b1), self.bodies.index(b2)))
+        pin_joint = pymunk.PinJoint(b1, b2, (0,0), (0,0))
+        self.space.add(pin_joint)
+        return pin_joint
+
+    def add_spring_constraint(self, b1, b2, params=None):
+        if params == None:
+            rest_length = np.random.randint(SPRING_LIMITS[0][0], SPRING_LIMITS[0][1])
+            stiffness = np.random.randint(SPRING_LIMITS[1][0], SPRING_LIMITS[1][1])
+            # damping = np.random.gamma(1, 0.5)
+            damping = 0
+            params = [rest_length, stiffness, damping]
+        if self.verbose:
+            print('Adding spring to {}-{}; {}, {}'.format(self.bodies.index(b1), self.bodies.index(b2), params[0], params[1]))
+        spring_joint = pymunk.DampedSpring(b1, b2, (0,0), (0,0), params[0], params[1], 0)
+        self.space.add(spring_joint)
+        return spring_joint
+
+    def find_constraint(self, a, b):
+        for c in a.constraints:
+            if c.a is b or c.b is b:
+                return c
+        return None
+
+    def remove_constraint(self, a, b):
+        con = self.find_constraint(a, b)
+        if con in self.space.constraints:
+            self.space.remove(con)
 
 
-    def run(self):
-        pygame.init()
-        screen = pygame.display.set_mode(self.size) 
-        clock = pygame.time.Clock()
-        draw_options = pymunk.pygame_util.DrawOptions(screen)
+    # get rid of everything in the space, as if nothing had happened
+    def reset_space(self):
+        self.space.remove(self.space.bodies, self.space.shapes, self.space.constraints)
+        self.add_walls()
 
-        # input_box1 = InputBox(40, self.size[1] - 40, 80, self.size[1])
-        # input_boxes = [input_box1]
+    def set_body_data(self):
+        bodies = list(filter(lambda b: b.body_type is pymunk.Body.DYNAMIC, self.space.bodies))
+        for i, b in enumerate(bodies):
+            b.__setattr__('udata', i)
 
-        running = True
-        mode = 'pin'
-
-        candidates = []
-
-        while running:
-            screen.fill((255,255,255))
-            self.space.debug_draw(draw_options)
-            # for box in input_boxes:
-            #     box.draw(screen)
-
-            mouse_pos = pymunk.pygame_util.from_pygame(pygame.mouse.get_pos(), screen)
-            near_query = self.space.point_query_nearest(mouse_pos, 0, pymunk.ShapeFilter())
-            if mouse_pos[0] < self.size[0] - 40 and mouse_pos[0] > 40 and mouse_pos[1] < self.size[1] - 40 and mouse_pos[1] > 40:
-                press_within_boundaries = True
-            else:
-                press_within_boundaries = False
-
-            if near_query is not None:
-                shape = near_query.shape
-                if shape.body.body_type != pymunk.Body.STATIC:
-                    # TODO: make this work for not just circles
-                    r = shape.radius + 4
-                    p = pymunk.pygame_util.to_pygame(shape.body.position, screen)
-                    pygame.draw.circle(screen, THECOLORS["orange"], p, int(r), 2)
-
-            for event in pygame.event.get():
-                # for box in input_boxes:
-                #     box.handle_event(event)
-                if event.type == QUIT or \
-                    event.type == KEYDOWN and (event.key in [K_ESCAPE, K_q]):  
-                    running = False
-                elif event.type == KEYDOWN and event.key in (K_s, K_p):
-                    if event.key == K_s:
-                        mode = 'spring'
-                    elif event.key == K_p:
-                        mode = 'pin'
-                elif event.type == KEYDOWN and event.key is K_j:
-                    print(self.save_state())
-                elif event.type == pygame.MOUSEBUTTONUP and event.button == 1 and press_within_boundaries:
-                    if near_query is not None:
-                        shape = near_query.shape
-                        shape.color = THECOLORS['cadetblue']
-                        candidates.append(shape)
-                        if len(candidates) == 2:
-                            # TODO: check if a constraint already exists between the two bodies
-                            self.add_pin_constraint(candidates[0].body, candidates[1].body)
-                            for c in candidates:
-                                c.color = THECOLORS['lightblue']
-                            candidates = []
-                    else:
-                        self.add_ball(mouse_pos)
-
-                    
-                elif event.type == pygame.MOUSEBUTTONUP and event.button == 3 and press_within_boundaries:
-                    if near_query is not None:
-                        shape = near_query.shape
-                        self.space.remove(shape.body, shape)
-                        # TODO: remove all constraints involving this object
-
-            # for box in input_boxes:
-            #     box.update()
-
-            
-            
-            pygame.display.flip()
-            clock.tick(TICK)
-            self.space.step(1/50.0)
+    def get_constraints(self):
+        return self.space.constraints
 
 
 
@@ -505,6 +521,9 @@ def add_vec(a, b):
     return (a[0] + b[0], a[1] + b[1])
 def sub_vec(a, b):
     return (a[0] - b[0], a[1] - b[1])
+
+def avg_vec(a, b):
+    return ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
 
 # angle between two vectors
 def ang(a, b):

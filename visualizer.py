@@ -32,14 +32,10 @@ def main(args):
     with open(file, 'rb') as f:
         data = pickle.load(f)
 
-    obj_data = data['obj']
-    con_data = data['con']
+    space_data = data['space']
+    locs_data = data['locs']
 
-    num_obj = len(obj_data[0])
-
-    scene = Scene(noise)
-    scene.add_bodies_from_rep(obj_data[0])
-    scene.add_constraints_from_rep(con_data)
+    num_obj = len(locs_data[0])
 
     
     if file2:
@@ -60,11 +56,11 @@ def main(args):
 
         skip = 20
         sim_length = 15
-        for j in range(len(obj_data) // skip - 1):
+        for j in range(len(locs_data) // skip - 1):
             scene.reset_space()
-            scene.add_bodies_from_rep(obj_data[j * skip])
+            scene.add_bodies_from_rep(locs_data[j * skip])
             scene.add_constraints_from_rep(con_data)
-            scene.add_bodies_from_rep(obj_data[j * skip], col_type='ball_red')
+            scene.add_bodies_from_rep(locs_data[j * skip], col_type='ball_red')
             scene.add_constraints_from_rep(con_data2, num_obj)
 
             for i in range(sim_length):
@@ -80,26 +76,31 @@ def main(args):
 
     # draw data happening without any constraints shown
     elif no_lines:
+        scene = SimulationScene(space=space_data, noise=noise)
         pygame.init()
         screen = pygame.display.set_mode(scene.size)
         pygame.display.set_caption('visualization (no constraints shown)')
         clock = pygame.time.Clock()
         draw_options = pymunk.pygame_util.DrawOptions(screen)
 
-        for t in range(len(obj_data)):
+        for con in scene.space.constraints:
+            scene.space.remove(con)
+
+        for t in range(len(locs_data)):
             screen.fill((255,255,255))
             for event in pygame.event.get():
                 if event.type in [QUIT, K_ESCAPE]:
                     sys.exit(0)
+            
+            clock.tick(TICK)
             scene.space.debug_draw(draw_options)
             pygame.display.flip()
-            clock.tick(TICK)
-            scene.reset_space()
-            scene.add_bodies_from_rep(obj_data[t])
+            scene.update_body_locations(locs_data[t])
 
         
     else:
-        scene.run_and_visualize(min(len(obj_data), TIME_LIMIT), label='visualization (with constraints)')
+        scene = SimulationScene(space=space_data, noise=noise)
+        scene.run_and_visualize(min(len(locs_data), TIME_LIMIT), label='visualization (with constraints)')
 
 
 def parse_args():
