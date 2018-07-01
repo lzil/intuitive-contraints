@@ -24,6 +24,7 @@ def main(args):
     file = args['file']
     file2 = args['file_secondary']
     no_lines = args['no_lines']
+    grav = args['gravity']
 
     # get file id which is determined by type of constraint and timestamp
     file_id = file.split('/')[-1].split('.')[0]
@@ -76,7 +77,7 @@ def main(args):
 
     # draw data happening without any constraints shown
     elif no_lines:
-        scene = SimulationScene(space=space_data, noise=noise)
+        scene = SimulationScene(space=space_data, noise=noise, gravity=grav)
         pygame.init()
         screen = pygame.display.set_mode(scene.size)
         pygame.display.set_caption('visualization (no constraints shown)')
@@ -99,7 +100,7 @@ def main(args):
 
         
     else:
-        scene = SimulationScene(space=space_data, noise=noise)
+        scene = SimulationScene(space=space_data, noise=noise, gravity=grav)
         scene.run_and_visualize(min(len(locs_data), TIME_LIMIT), label='visualization (with constraints)')
 
 
@@ -110,6 +111,7 @@ def parse_args():
     parser.add_argument('-f', '--file_secondary', help='Second file')
     parser.add_argument('-x', '--no_lines', help='No constraint connections shown', action='store_true')
     parser.add_argument('-n', '--noise', help='amount of noise, in [collision, dynamic] form', nargs=2, type=float,default=[0,0])
+    parser.add_argument('-g', '--gravity', help='add gravity', action='store_true')
     args = vars(parser.parse_args())
 
     return args

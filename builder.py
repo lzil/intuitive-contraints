@@ -34,23 +34,23 @@ def main():
 
     orig_drag_pos = (0,0)
 
-    font = pygame.font.Font(None, 24)
-    text_setting = font.render('Setting (m): ', True, (20, 20, 20))
-    text_shape = font.render('Shape (n): ', True, (20, 20, 20))
+    font = pygame.font.Font(None, 36)
+    text_setting = font.render('Setting (m): ', True, THECOLORS['grey20'])
+    text_shape = font.render('Shape (n): ', True, THECOLORS['grey20'])
     
 
     candidates = []
 
     while running:
-        screen.fill((255,255,255))
+        screen.fill(THECOLORS['white'])
         b_scene.space.debug_draw(draw_options)
 
-        screen.blit(text_setting,(24,984))
-        screen.blit(text_shape,(324,984))
-        text_setting_actual = font.render(modes[mode], True, (20, 20, 20))
-        text_shape_actual = font.render(shps[shp], True, (20, 20, 20))
-        screen.blit(text_setting_actual,(120,984))
-        screen.blit(text_shape_actual,(420,984))
+        screen.blit(text_setting,(35,975))
+        screen.blit(text_shape,(535,975))
+        text_setting_actual = font.render(modes[mode], True, THECOLORS['steelblue'])
+        text_shape_actual = font.render(shps[shp], True, THECOLORS['steelblue'])
+        screen.blit(text_setting_actual,(195,975))
+        screen.blit(text_shape_actual,(695,975))
 
         pos = pymunk.pygame_util.from_pygame(pygame.mouse.get_pos(), screen)
         near_query = b_scene.space.point_query_nearest(pos, 0, pymunk.ShapeFilter())
@@ -125,17 +125,15 @@ def main():
                                 list(c.shapes)[0].color = THECOLORS['lightblue']
                             if candidates[0] != candidates[1]:
                                 b_scene.remove_constraint(candidates[0], candidates[1])
-                                if mode == 0:
-                                    b_scene.add_pin_constraint(candidates[0], candidates[1])
-                                elif mode == 1:
-                                    b_scene.add_spring_constraint(candidates[0], candidates[1], SPRINGS['short'])
-                                elif mode == 2:
-                                    b_scene.add_spring_constraint(candidates[0], candidates[1], SPRINGS['medium'])
-                                elif mode == 3:
-                                    b_scene.add_spring_constraint(candidates[0], candidates[1], SPRINGS['long'])
+                                b_scene.add_constraint_by_mode(candidates[0], candidates[1], mode)
                             candidates = []
+
                 elif shape is None:
-                    if shp == 0:
+                    if len(candidates) == 1:
+                        list(candidates[0].shapes)[0].color = THECOLORS['lightblue']
+                        b_scene.add_background_constraint(candidates[0], mode, pos)
+                        candidates = []
+                    elif shp == 0:
                         if total_time >= 0.1:
                             r = max(10, abs((pos[0] - start_pos[0])) / 2)
                             center = avg_vec(start_pos, pos)

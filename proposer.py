@@ -79,14 +79,14 @@ def get_value_spring(scene, save_state, data, ids, params, whole_scene=True, eps
 
     p_obj = [scene.bodies[i] for i in ids]
     if ids not in scene.constraints:
-        scene.add_spring_constraint(p_obj[0], p_obj[1], params)
+        scene.add_spring_constraint(p_obj[0], p_obj[1], params=params)
     else:
         if type(scene.constraints[ids]) == pymunk.constraint.DampedSpring:
             scene.constraints[ids].rest_length = params[0]
             scene.constraints[ids].stiffness = params[1]
         else:
             scene.remove_constraint(ids)
-            scene.add_spring_constraint(p_obj[0], p_obj[1], params)
+            scene.add_spring_constraint(p_obj[0], p_obj[1], params=params)
 
     # use snapback rule to get cost
     old_locs, new_locs = scene.get_snapback_locs(data)
@@ -313,7 +313,7 @@ def guess_scene_constraints(scene, save_state, mh=True):
                         scene.remove_constraint(pair)
                     b1, b2 = scene.bodies[pair[0]], scene.bodies[pair[1]]
                     if final_constraint == 'spring':
-                        scene.add_spring_constraint(b1, b2, list(trial_best) + [0])
+                        scene.add_spring_constraint(b1, b2, params=list(trial_best) + [0])
                         print('{}: spring with parameters {} and prob {}'.format(pair, trial_best, trial_value))
                         graph[chosen_obj][other_obj] = ['spring', trial_best]
                         graph[other_obj][chosen_obj] = ['spring', trial_best]
@@ -337,7 +337,7 @@ def guess_scene_constraints(scene, save_state, mh=True):
                             # otherwise just update with the new parameters
                             b1, b2 = scene.bodies[pair[0]], scene.bodies[pair[1]]
                             if final_constraint == 'spring':
-                                scene.add_spring_constraint(b1, b2, list(trial_best) + [0])
+                                scene.add_spring_constraint(b1, b2, params=list(trial_best) + [0])
                                 print('{}: spring with parameters {} and prob {}'.format(pair, trial_best, trial_value))
                             else:
                                 scene.add_pin_constraint(b1, b2)
@@ -405,7 +405,7 @@ def guess_scene_constraints(scene, save_state, mh=True):
                         # otherwise just update with the new parameters
                         b1, b2 = scene.bodies[con[0]], scene.bodies[con[1]]
                         if t == 'spring':
-                            scene.add_spring_constraint(b1, b2, list(par) + [0])
+                            scene.add_spring_constraint(b1, b2, params=list(par) + [0])
                             print('{}: spring with parameters {} and prob {}'.format(con, par, trial_value))
                         else:
                             scene.add_pin_constraint(b1, b2)

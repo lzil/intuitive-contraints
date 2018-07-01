@@ -34,11 +34,7 @@ def main(args):
 
 
 
-
     b_scene = BuilderScene()
-
-
-    # scene = Scene(noise)
 
     for _ in range(reps):
         
