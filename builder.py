@@ -16,16 +16,22 @@ import matplotlib.pyplot as plt
 from scene_tools import *
 import argparse
 
-def main():
+def main(args):
+    grav = args['gravity']
+    file = args['file']
 
-    b_scene = BuilderScene()
+    if file:
+        _, space_data, _ = load_file(file)
+        b_scene = BuilderScene(space=space_data, gravity=grav)
+    else:
+        b_scene = BuilderScene(gravity=grav)
 
     pygame.init()
     screen = pygame.display.set_mode(b_scene.size) 
     # clock = pygame.time.Clock()
     draw_options = pymunk.pygame_util.DrawOptions(screen)
 
-    running = True
+    running = False
     clicked_body = None
     modes = ['pin', 'spring (short)', 'spring (medium)', 'spring (long)']
     mode = 0
@@ -41,9 +47,10 @@ def main():
 
     candidates = []
 
-    while running:
+    while True:
         screen.fill(THECOLORS['white'])
         b_scene.space.debug_draw(draw_options)
+        b_scene.draw_body_borders(screen)
 
         screen.blit(text_setting,(35,975))
         screen.blit(text_shape,(535,975))
@@ -60,29 +67,33 @@ def main():
             within_bounds = False
 
         shape = None
-        if near_query is not None:
+        if near_query is not None: # get the closest body to the body that is clicked
             shape = near_query.shape
             if shape.body.body_type != pymunk.Body.STATIC:
                 p = pymunk.pygame_util.to_pygame(shape.body.position, screen)
                 pygame.draw.circle(screen, THECOLORS["orange"], p, 5, 0)
 
-        if clicked_body is not None:
+        if clicked_body is not None: # is there a body being dragged? if so, move the body to the mouse position
             clicked_body.position = sub_vec(pos, sub_vec(start_pos,orig_drag_pos))
             b_scene.space.reindex_shapes_for_body(clicked_body)
 
         for event in pygame.event.get():
             if event.type == QUIT or \
-                event.type == KEYDOWN and (event.key in [K_ESCAPE, K_q]):  
-                running = False
+                event.type == KEYDOWN and (event.key in [K_ESCAPE, K_q]):
+                sys.exit(0)
             elif event.type == KEYDOWN:
                 if event.key is K_m: # change the constraint type that is produced by clicking
-                    mode += 1
-                    if mode >= len(modes):
-                        mode = 0
+                    mode = iterate_val(modes, mode)
                 elif event.key is K_n: # change the shape that is produced
-                    shp += 1
-                    if shp >= len(shps):
-                        shp = 0
+                    shp = iterate_val(shps, shp)
+                elif event.key is K_r: # run the scene
+                    if not running:
+                        b_scene.set_body_data()
+                        save_space = b_scene.get_space()
+                        s_scene = SimulationScene(space=save_space, gravity=grav)
+                        s_scene.run_and_visualize()
+                    else:
+                        pass
                 elif event.key is K_s: # save the space as a _real.pkl file
                     b_scene.set_body_data()
                     save_space = b_scene.get_space()
@@ -163,5 +174,24 @@ def main():
 
     # b_scene.run_builder()
 
+def iterate_val(val_list, val):
+    val += 1
+    if val >= len(val_list):
+        val = 0
+    return val
 
-main()
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='build a scene')
+
+    parser.add_argument('-f', '--file', help='use file')
+    parser.add_argument('-g', '--gravity', help='add gravity', action='store_true')
+    args = vars(parser.parse_args())
+
+    return args
+
+
+if __name__ == '__main__':
+    args = parse_args()
+    main(args)

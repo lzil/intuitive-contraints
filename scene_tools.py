@@ -24,9 +24,12 @@ TIME_LIMIT = 360
 TICK = 100
 MCMC_SAMPLE_NUM = 20
 # GRAVITY = 0
-GRAVITY = -5000.0
-ELASTICITY = 0.99
+GRAVITY = -10000.0
+ELASTICITY_WALL = 0.7
+ELASTICITY_OBJ = 0.9
 WALL_WIDTH = 30
+FRICTION_WALL = 0.8
+FRICTION_OBJ = 0.6
 
 SPRING_PRIORS = [
     scipy.stats.norm(50, 50),  # rest length
@@ -39,23 +42,22 @@ SPRING_START = (50, 90)
 
 
 SPRINGS = {
-    'short': (30, 150, 1),
-    'medium': (60, 100, 1),
-    'long': (90, 60, 1)
+    'short': (30, 150, 0.2),
+    'medium': (60, 100, 0.5),
+    'long': (90, 60, 0.8)
 }
 
 COL_TYPES = {
     'wall': 1,
     'normal': 2,
     'ball_red': 3,
-    'static_point': 4
 }
 
 
 # manages the space, bodies, walls, and running of physics all in one class
 class Scene:
-    def __init__(self, space=None, noise=(0,0), walls=True, gravity=False):
-        self.size = [1000, 1000]
+    def __init__(self, space=None, noise=(0,0), walls=True, gravity=False, size=(1400, 1000)):
+        self.size = size
         if noise[0] == 0 and noise[1] == 0:
             self.noise = None
         else:
@@ -97,8 +99,8 @@ class Scene:
         right_wall = pymunk.Segment(self.space.static_body, (self.size[0],self.size[1]), (self.size[0],0), WALL_WIDTH)
         walls = [bottom_wall, left_wall, top_wall, right_wall]
         for w in walls:
-            w.friction = 0.8
-            w.elasticity = ELASTICITY
+            w.friction = FRICTION_WALL
+            w.elasticity = ELASTICITY_WALL
             w.color = THECOLORS['grey']
         self.space.add(walls)
 
@@ -174,33 +176,47 @@ class Scene:
 
 
     # run the scene forward while showing what's going on in pygame
-    def run_and_visualize(self, steps=10000, label='visualization', tick=20):
+    def run_and_visualize(self, steps=10000, tick=20):
+        # start the drawing
         pygame.init()
         screen = pygame.display.set_mode(self.size)
-        pygame.display.set_caption(label)
         clock = pygame.time.Clock()
         draw_options = pymunk.pygame_util.DrawOptions(screen)
+
         self.update_collision_handler()
-        # locations = []
         for t in range(steps):
-            screen.fill((255,255,255))
             for event in pygame.event.get():
                 if event.type in [QUIT, K_ESCAPE]:
                     sys.exit(0)
+                if event.type == KEYDOWN and event.key is K_r: # return to the earlier screen
+                    return
+            # draw everything
+            screen.fill((255,255,255))
             self.space.debug_draw(draw_options)
+            self.draw_body_borders(screen)
             pygame.display.flip()
             clock.tick(TICK)
-            # locations.append(self.get_body_rep())
-            self.space.step(1/200.0)
-            # self.apply_func_constraints()
+            self.space.step(1/100.0)
+
             self.apply_dynamic_noise()
-            if self.verbose and not t % 10:
-                print('step {}'.format(t))
-        # pdb.set_trace()
-        # return locations
+            # if self.verbose and not t % 10:
+            #     print('step {}'.format(t))
+
+    # make sure borders are drawn on shapes so they're pretty. DO NOT USE if not in visualization mode
+    def draw_body_borders(self, screen):
+        for b in self.space.bodies:
+            s = list(b.shapes)[0]
+            if type(s) is not pymunk.Circle:
+                verts = []
+                for v in s.get_vertices():
+                    verts.append(pymunk.pygame_util.from_pygame(v.rotated(b.angle) + b.position, screen))
+                verts.append(verts[0])
+                pygame.draw.lines(screen, THECOLORS["gray"], False, verts, 4)
+            else:
+                pygame.draw.circle(screen, THECOLORS['gray'], pymunk.pygame_util.from_pygame(b.position, screen), int(s.radius) + 1, 4)
 
 
-
+    # add constraint based on which mode is active in the builder
     def add_constraint_by_mode(self, b1, b2, mode, loc=(0,0)):
         if mode == 0:
             joint = self.add_pin_constraint(b1, b2, loc1=loc)
@@ -226,8 +242,8 @@ class Scene:
 
 
     def add_pin_constraint(self, b1, b2, loc1=(0,0), loc2=(0,0), params=None):
-        if self.verbose:
-            print('Adding pin to {}-{}'.format(self.bodies.index(b1), self.bodies.index(b2)))
+        # if self.verbose:
+        #     print('Adding pin to {}-{}'.format(self.bodies.index(b1), self.bodies.index(b2)))
         pin_joint = pymunk.PinJoint(b1, b2, loc1, loc2)
         self.space.add(pin_joint)
         if type(self) == SimulationScene:
@@ -243,8 +259,8 @@ class Scene:
             # damping = np.random.gamma(1, 0.5)
             damping = 0
             params = [rest_length, stiffness, damping]
-        if self.verbose:
-            print('Adding spring to {}-{}; {}, {}'.format(self.bodies.index(b1), self.bodies.index(b2), params[0], params[1]))
+        # if self.verbose:
+        #     print('Adding spring to {}-{}; {}, {}'.format(self.bodies.index(b1), self.bodies.index(b2), params[0], params[1]))
 
         spring_joint = pymunk.DampedSpring(b1, b2, loc1, loc2, params[0], params[1], params[2])
         self.space.add(spring_joint)
@@ -284,10 +300,16 @@ class Scene:
 class SimulationScene(Scene):
     def __init__(self, *args, **kwargs):
         super(SimulationScene, self).__init__(*args, **kwargs)
-        dynamic_bodies = list(filter(lambda b: b.body_type is pymunk.Body.DYNAMIC, self.space.bodies))
-        self.bodies = [None] * len(dynamic_bodies)
-        for b in dynamic_bodies:
+        # dynamic_bodies = list(filter(lambda b: b.body_type is pymunk.Body.DYNAMIC, self.space.bodies))
+        self.bodies = [None] * len(self.space.bodies)
+        # for b in self.space.bodies:
+        #     a = list(b.shapes)[0]
+        #     a.elasticity = ELASTICITY_WALL
+        # print(self.space.bodies)
+        # print(dynamic_bodies)
+        for b in self.space.bodies:
             self.bodies[b.udata] = b
+            # list(b.shapes)[0].elasticity = 0.5
             b.activate()
         self.constraints = self.get_constraints()
 
@@ -379,7 +401,8 @@ class BuilderScene(Scene):
         shape.color = THECOLORS['lightblue']
         if col_type == 'ball_red':
             shape.color=(255,100,100,0)
-        shape.elasticity = ELASTICITY
+        shape.elasticity = ELASTICITY_OBJ
+        shape.friction = FRICTION_OBJ
         self.space.add(body, shape)
         return body
 
@@ -403,7 +426,8 @@ class BuilderScene(Scene):
         shape = pymunk.Poly(body, rs)
         shape.collision_type = COL_TYPES[col_type]
         shape.color = THECOLORS['lightblue']
-        shape.elasticity = ELASTICITY
+        shape.elasticity = ELASTICITY_OBJ
+        shape.friction = FRICTION_OBJ
         self.space.add(body, shape)
         return body
 
@@ -429,8 +453,8 @@ class BuilderScene(Scene):
 
     # set the udata of a body so that it can be identified later
     def set_body_data(self):
-        bodies = list(filter(lambda b: b.body_type is pymunk.Body.DYNAMIC, self.space.bodies))
-        for i, b in enumerate(bodies):
+        # bodies = list(filter(lambda b: b.body_type is pymunk.Body.DYNAMIC, self.space.bodies))
+        for i, b in enumerate(self.space.bodies):
             b.__setattr__('udata', i)
 
 
@@ -705,3 +729,20 @@ def get_tdif(obj1, obj2):
 
 def print_time(label, start):
     print('{}: {}'.format(label, time.time() - start))
+
+
+
+def load_file(file):
+    # get file id which is determined by type of constraint and timestamp
+    file_id = file.split('/')[-1].split('.')[0]
+
+    # actually load the file
+    with open(file, 'rb') as f:
+        data = pickle.load(f)
+
+    space_data = data['space']
+    locs_data = data['locs']
+
+    return file_id, space_data, locs_data
+
+

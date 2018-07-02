@@ -26,15 +26,7 @@ def main(args):
     no_lines = args['no_lines']
     grav = args['gravity']
 
-    # get file id which is determined by type of constraint and timestamp
-    file_id = file.split('/')[-1].split('.')[0]
-
-    # actually load the file
-    with open(file, 'rb') as f:
-        data = pickle.load(f)
-
-    space_data = data['space']
-    locs_data = data['locs']
+    file_id, space_data, locs_data = load_file(file)
 
     num_obj = len(locs_data[0])
 
@@ -101,7 +93,7 @@ def main(args):
         
     else:
         scene = SimulationScene(space=space_data, noise=noise, gravity=grav)
-        scene.run_and_visualize(min(len(locs_data), TIME_LIMIT), label='visualization (with constraints)')
+        scene.run_and_visualize(min(len(locs_data), TIME_LIMIT))
 
 
 def parse_args():
