@@ -42,10 +42,10 @@ def get_constraint_order(scene, data):
 
 
 # metropolis-hastings algorithm
-def metropolis(scene, save_state, data, ids, start, priors, mults, value_func, proposal_func, niter=MCMC_SAMPLE_NUM, nburn=0):
+def metropolis(scene, save_space, data, ids, start, priors, mults, value_func, proposal_func, niter=MCMC_SAMPLE_NUM, nburn=0):
     current = start
     # keep list of explored data points
-    value_current = value_func(scene, save_state, data, ids, current, whole_scene=False)
+    value_current = value_func(scene, save_space, data, ids, current, whole_scene=False)
     post = [current]
     # initial temperature
     T = .5
@@ -55,7 +55,7 @@ def metropolis(scene, save_state, data, ids, start, priors, mults, value_func, p
     for i in range(niter + nburn):
         # propose a new point to jump to
         proposed = proposal_func(current, mults)
-        value_proposed = value_func(scene, save_state, data, ids, proposed, whole_scene=False)
+        value_proposed = value_func(scene, save_space, data, ids, proposed, whole_scene=False)
         # calculate probability of jumpint to new point
         fb = np.log(value_current)
         fa = np.log(value_proposed)
@@ -74,8 +74,8 @@ def metropolis(scene, save_state, data, ids, start, priors, mults, value_func, p
 
 
 # get the value at a certain point while adding/modifying a spring, given observed data
-def get_value_spring(scene, save_state, data, ids, params, whole_scene=True, eps=1e-6):
-    scene.load_state(save_state)
+def get_value_spring(scene, save_space, data, ids, params, whole_scene=True, eps=1e-6):
+    scene.load_space(save_space)
 
     p_obj = [scene.bodies[i] for i in ids]
     if ids not in scene.constraints:
@@ -103,8 +103,8 @@ def get_value_spring(scene, save_state, data, ids, params, whole_scene=True, eps
     return np.exp(-total_cost) * (0.9 ** len(scene.constraints))
 
 # get the value at a certain point while adding/modifying a pin, given observed data
-def get_value_pin(scene, save_state, data, ids, whole_scene=True, eps=1e-6):
-    scene.load_state(save_state)
+def get_value_pin(scene, save_space, data, ids, whole_scene=True, eps=1e-6):
+    scene.load_space(save_space)
 
     p_obj = [scene.bodies[i] for i in ids]
     if ids not in scene.constraints:
@@ -131,8 +131,8 @@ def get_value_pin(scene, save_state, data, ids, whole_scene=True, eps=1e-6):
 
 
 # get the probability value for a given scene, given the observed data
-def get_value_scene(scene, save_state, data):
-    scene.load_state(save_state)
+def get_value_scene(scene, save_space, data):
+    scene.load_space(save_space)
     old_locs, new_locs = scene.get_snapback_locs(data)
     return np.exp(-get_cost(old_locs, new_locs)) * (0.9 ** len(scene.constraints))
 
@@ -180,7 +180,7 @@ def get_average_distances(dt):
 
 
 # for a scene with just one constraint
-def guess_single_constraint(scene, save_state, mh=True):
+def guess_single_constraint(scene, save_space, mh=True):
 
     objects_constrained = [i[1] for i in get_constraint_order(scene, locs_data)[:2]]
     pair = (min(objects_constrained), max(objects_constrained))
@@ -191,9 +191,9 @@ def guess_single_constraint(scene, save_state, mh=True):
 
     if mh:
 
-        trial_data = metropolis(scene, save_state, locs_data, pair, SPRING_START, SPRING_PRIORS, SPRING_MULTS, get_value_spring, make_proposal)
+        trial_data = metropolis(scene, save_space, locs_data, pair, SPRING_START, SPRING_PRIORS, SPRING_MULTS, get_value_spring, make_proposal)
         trial_best = [int(i) for i in trial_data[-1]]
-        trial_value = get_value_spring(scene, save_state, locs_data, pair, trial_best)
+        trial_value = get_value_spring(scene, save_space, locs_data, pair, trial_best)
 
         mh_data[pair] = trial_data
         print(trial_best)
@@ -227,7 +227,7 @@ def guess_single_constraint(scene, save_state, mh=True):
     plt.show()
 
 
-def guess_scene_constraints(scene, save_state, mh=True):
+def guess_scene_constraints(scene, save_space, mh=True):
 
     if mh:
         graph = {}
@@ -247,7 +247,7 @@ def guess_scene_constraints(scene, save_state, mh=True):
         iteration = 0
         while True:
             iteration += 1
-            scene_prob = get_value_scene(scene, save_state, locs_data)
+            scene_prob = get_value_scene(scene, save_space, locs_data)
             print('\nIteration {} with scene probability: {}'.format(iteration, scene_prob))
 
             # find which objects likely involve some sort of constraint
@@ -290,11 +290,11 @@ def guess_scene_constraints(scene, save_state, mh=True):
                 pair = (min(chosen_obj, other_obj), max(chosen_obj, other_obj))
 
                 # get a good setting of parameters given particular constraint
-                trial_data = metropolis(scene, save_state, locs_data, pair, connection_info[1], SPRING_PRIORS, SPRING_MULTS, get_value_spring, make_proposal)
+                trial_data = metropolis(scene, save_space, locs_data, pair, connection_info[1], SPRING_PRIORS, SPRING_MULTS, get_value_spring, make_proposal)
                 trial_best = tuple([int(i) for i in trial_data[-1]])
-                trial_value = get_value_spring(scene, save_state, locs_data, pair, trial_best, whole_scene=True)
+                trial_value = get_value_spring(scene, save_space, locs_data, pair, trial_best, whole_scene=True)
 
-                pin_value =  get_value_pin(scene, save_state, locs_data, pair, whole_scene=True)
+                pin_value =  get_value_pin(scene, save_space, locs_data, pair, whole_scene=True)
                 if pin_value > trial_value:
                     final_constraint = 'pin'
                     on_prob = pin_value / (scene_prob + pin_value)
@@ -306,7 +306,7 @@ def guess_scene_constraints(scene, save_state, mh=True):
 
 
                 # update the constraint and parameters
-                scene.load_state(save_state)
+                scene.load_space(save_space)
                 # creating/editing the spring or the pin based on what we got for the best value earlier
                 if np.random.random() < on_prob and trial_best[1] > 10:
                     if pair in scene.constraints:
@@ -326,8 +326,8 @@ def guess_scene_constraints(scene, save_state, mh=True):
                     if pair in scene.constraints:
                         # test what happens without the constraint
                         scene.remove_constraint(pair)
-                        save_state = scene.save_state()
-                        new_value = get_value_scene(scene, save_state, locs_data)
+                        save_space = scene.save_space()
+                        new_value = get_value_scene(scene, save_space, locs_data)
                         final_value = trial_value if final_constraint == 'spring' else pin_value
                         delete_prob = new_value / (new_value + final_value)
                         if np.random.random() < delete_prob:
@@ -342,10 +342,10 @@ def guess_scene_constraints(scene, save_state, mh=True):
                             else:
                                 scene.add_pin_constraint(b1, b2)
                                 print('{}: pin with prob {}'.format(pair, pin_value))
-                save_state = scene.save_state()
+                save_space = scene.save_space()
                 
                 # log values and constraints
-                val = get_value_scene(scene, save_state, locs_data)
+                val = get_value_scene(scene, save_space, locs_data)
 
                 if iteration < 50:
                     threshold = 4
@@ -357,7 +357,7 @@ def guess_scene_constraints(scene, save_state, mh=True):
                     scene.reset_space()
                     scene.add_bodies_from_rep(locs_data[0])
                     scene.add_constraints_from_rep(best_constraints)
-                    save_state = scene.save_state()
+                    save_space = scene.save_space()
 
                 values.append(val)
                 current_constraints = [
@@ -383,7 +383,7 @@ def guess_scene_constraints(scene, save_state, mh=True):
                 print('current constraints: {}'.format(list(scene.constraints.keys())))
                 print('best so far: {}'.format(best_constraints))
                 continue
-                scene.load_state(save_state)
+                scene.load_space(save_space)
                 for con in scene.constraints:
                     if type(scene.constraints[con]) == pymunk.constraint.DampedSpring:
                         t = 'spring'
@@ -391,11 +391,11 @@ def guess_scene_constraints(scene, save_state, mh=True):
                     else:
                         t='pin'
                     # test what happens without the constraint
-                    old_value = get_value_scene(scene, save_state, locs_data)
+                    old_value = get_value_scene(scene, save_space, locs_data)
                     scene.remove_constraint(con)
 
-                    save_state = scene.save_state()
-                    new_value = get_value_scene(scene, save_state, locs_data)
+                    save_space = scene.save_space()
+                    new_value = get_value_scene(scene, save_space, locs_data)
                     #final_value = trial_value if final_constraint == 'spring' else pin_value
                     delete_prob = new_value / 2 / (new_value + old_value)
                     if np.random.random() < delete_prob:
@@ -410,7 +410,7 @@ def guess_scene_constraints(scene, save_state, mh=True):
                         else:
                             scene.add_pin_constraint(b1, b2)
                             print('{}: pin with prob {}'.format(con, pin_value))
-                    save_state = scene.save_state()
+                    save_space = scene.save_space()
 
             if iteration >= 100 or best_value > 0.4:
                 print('Finished! Best parameters found: {}'.format(best_constraints))
@@ -492,12 +492,12 @@ def main(args):
     # scene.add_bodies_from_rep(locs_data[0])
 
     # save current state because will need to run many times later for simulations
-    save_state = scene.get_state()
+    save_space = scene.get_space()
 
     if args['single']:
-        guess_single_constraint(scene, save_state, not use_mh)
+        guess_single_constraint(scene, save_space, not use_mh)
     else:
-        guess_scene_constraints(scene, save_state, not use_mh)
+        guess_scene_constraints(scene, save_space, not use_mh)
 
 
 

@@ -21,12 +21,12 @@ import scipy.stats
 # limit for artificial simulation of scenes
 TIME_LIMIT = 360
 
-TICK = 100
+TICK = 20
 MCMC_SAMPLE_NUM = 20
 # GRAVITY = 0
-GRAVITY = -10000.0
-ELASTICITY_WALL = 0.7
-ELASTICITY_OBJ = 0.9
+GRAVITY = (0,-10000.0)
+ELASTICITY_WALL = 0.5
+ELASTICITY_OBJ = 0.95
 WALL_WIDTH = 30
 FRICTION_WALL = 0.8
 FRICTION_OBJ = 0.6
@@ -42,21 +42,39 @@ SPRING_START = (50, 90)
 
 
 SPRINGS = {
-    'short': (30, 150, 0.2),
-    'medium': (60, 100, 0.5),
-    'long': (90, 60, 0.8)
+    'short': (100, 500, 0.05),
+    'medium': (175, 300, 0.1),
+    'long': (250, 200, 0.3)
 }
+
+# SP_LENS = {
+#     'short': 15,
+#     'medium': 30,
+#     'long': 60
+# }
+
+# SP_KS = {
+#     'low': 100,
+#     'medium': 200,
+#     'high': 300
+# }
+
+# SP_DAMPS = {
+#     'low': 0.2,
+#     'medium': 0.5,
+#     'high': 0.8
+# }
 
 COL_TYPES = {
     'wall': 1,
     'normal': 2,
-    'ball_red': 3,
+    'differential': 3,
 }
 
 
 # manages the space, bodies, walls, and running of physics all in one class
 class Scene:
-    def __init__(self, space=None, noise=(0,0), walls=True, gravity=False, size=(1400, 1000)):
+    def __init__(self, space=None, noise=(0,0), walls=True, size=(1400, 1000)):
         self.size = size
         if noise[0] == 0 and noise[1] == 0:
             self.noise = None
@@ -70,14 +88,10 @@ class Scene:
             self.load_space(space)
         else:
             self.space = pymunk.Space()
-            self.space.gravity = (0.0, GRAVITY)
             if walls:
                 self.add_walls()
 
-        if gravity:
-            self.space.gravity = (0.0, GRAVITY)
-        else:
-            self.space.gravity = (0,0)
+        # self.space.collision_slop = 0.01
 
         self.verbose = False
         self.update_collision_handler()
@@ -196,9 +210,10 @@ class Scene:
             self.draw_body_borders(screen)
             pygame.display.flip()
             clock.tick(TICK)
-            self.space.step(1/100.0)
+            for i in range(4):
+                self.space.step(1/400.0)
 
-            self.apply_dynamic_noise()
+            # self.apply_dynamic_noise()
             # if self.verbose and not t % 10:
             #     print('step {}'.format(t))
 
@@ -218,8 +233,10 @@ class Scene:
 
     # add constraint based on which mode is active in the builder
     def add_constraint_by_mode(self, b1, b2, mode, loc=(0,0)):
+        # pin constraint
         if mode == 0:
             joint = self.add_pin_constraint(b1, b2, loc1=loc)
+        # the varioua spring constraints
         elif mode == 1:
             joint = self.add_spring_constraint(b1, b2, loc1=loc, params=SPRINGS['short'])
         elif mode == 2:
@@ -300,16 +317,9 @@ class Scene:
 class SimulationScene(Scene):
     def __init__(self, *args, **kwargs):
         super(SimulationScene, self).__init__(*args, **kwargs)
-        # dynamic_bodies = list(filter(lambda b: b.body_type is pymunk.Body.DYNAMIC, self.space.bodies))
         self.bodies = [None] * len(self.space.bodies)
-        # for b in self.space.bodies:
-        #     a = list(b.shapes)[0]
-        #     a.elasticity = ELASTICITY_WALL
-        # print(self.space.bodies)
-        # print(dynamic_bodies)
         for b in self.space.bodies:
             self.bodies[b.udata] = b
-            # list(b.shapes)[0].elasticity = 0.5
             b.activate()
         self.constraints = self.get_constraints()
 
@@ -418,7 +428,7 @@ class BuilderScene(Scene):
             w, h = sub_vec(pos2, pos1)
             w, h = max(10, abs(w)), max(10, abs(h))
             mass = w * h / 1600
-            rs = [(-w, -h), (-w, h), (w, h), (w, -h)]
+            rs = [(-w/2, -h/2), (-w/2, h/2), (w/2, h/2), (w/2, -h/2)]
             moment = pymunk.moment_for_box(mass, (w,h))
             body = pymunk.Body(mass, moment)
             body.position = avg_vec(pos1, pos2)

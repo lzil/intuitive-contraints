@@ -24,8 +24,6 @@ def main(args):
     file = args['file']
     file2 = args['file_secondary']
     no_lines = args['no_lines']
-    grav = args['gravity']
-
     file_id, space_data, locs_data = load_file(file)
 
     num_obj = len(locs_data[0])
@@ -41,9 +39,14 @@ def main(args):
             return False
         ch.begin = begin
 
+        b_scene = BuilderScene(space=space_data)
+        for b in b_scene.space.bodies:
+            b_copy = b.copy()
+            b_copy.udata = b.udata + num_obj
+            list(b.shapes())[0].collision_type = COL_TYPES['differential']
+
         pygame.init()
         screen = pygame.display.set_mode(scene.size)
-        pygame.display.set_caption('comparison with snapback')
         clock = pygame.time.Clock()
         draw_options = pymunk.pygame_util.DrawOptions(screen)
 
@@ -69,7 +72,7 @@ def main(args):
 
     # draw data happening without any constraints shown
     elif no_lines:
-        scene = SimulationScene(space=space_data, noise=noise, gravity=grav)
+        scene = SimulationScene(space=space_data, noise=noise)
         pygame.init()
         screen = pygame.display.set_mode(scene.size)
         pygame.display.set_caption('visualization (no constraints shown)')
@@ -92,7 +95,7 @@ def main(args):
 
         
     else:
-        scene = SimulationScene(space=space_data, noise=noise, gravity=grav)
+        scene = SimulationScene(space=space_data, noise=noise)
         scene.run_and_visualize(min(len(locs_data), TIME_LIMIT))
 
 
@@ -103,7 +106,6 @@ def parse_args():
     parser.add_argument('-f', '--file_secondary', help='Second file')
     parser.add_argument('-x', '--no_lines', help='No constraint connections shown', action='store_true')
     parser.add_argument('-n', '--noise', help='amount of noise, in [collision, dynamic] form', nargs=2, type=float,default=[0,0])
-    parser.add_argument('-g', '--gravity', help='add gravity', action='store_true')
     args = vars(parser.parse_args())
 
     return args

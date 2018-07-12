@@ -6,7 +6,7 @@
 
 # starter pack
 
-To produce something that looks like balls moving around under some constraints:
+To create something that looks like balls moving around under some constraints:
 `python simulate.py -b 4 -c 3`
 
 Wait for it to end, and you'll see that it saves the data from that run under `stimuli/XYZ_real.pkl`.
@@ -23,7 +23,7 @@ To run the Metropolis-Hastings algorithm to attempt to find the rest_length, sti
 
 # to build your own scene
 Use `builder.py`.
-Options `-f` (along with a file name) opens an already-saved `_real.pkl` file, and `g` turns on gravity.
+Options `-f` (along with a file name) opens an already-saved `_real.pkl` file, and `-g` turns on gravity.
 For instance,
 `python builder.py -f XYZ_real.pkl -g`
 
@@ -32,6 +32,7 @@ Instructions:
 - press `n` to iterate between shapes
 - press `s` to save the scene in `stimuli/` (name of saved file should show in the console)
 - press `r` to test run the scene
+- press `g` to toggle gravity
 
 - To create a constraint between two objects, click an object (it will turn _cadet blue_), then click on another object.
 To cancel this selection, simply press the original object again.

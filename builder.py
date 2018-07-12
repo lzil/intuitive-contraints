@@ -22,9 +22,10 @@ def main(args):
 
     if file:
         _, space_data, _ = load_file(file)
-        b_scene = BuilderScene(space=space_data, gravity=grav)
+        b_scene = BuilderScene(space=space_data)
+        b_scene.space.gravity = GRAVITY
     else:
-        b_scene = BuilderScene(gravity=grav)
+        b_scene = BuilderScene()
 
     pygame.init()
     screen = pygame.display.set_mode(b_scene.size) 
@@ -82,6 +83,12 @@ def main(args):
                 event.type == KEYDOWN and (event.key in [K_ESCAPE, K_q]):
                 sys.exit(0)
             elif event.type == KEYDOWN:
+                if event.key is K_g:
+                    if b_scene.space.gravity[1] > -10:
+                        b_scene.space.gravity = GRAVITY
+                    else:
+                        b_scene.space.gravity = (0,0)
+                    print(b_scene.space.gravity)
                 if event.key is K_m: # change the constraint type that is produced by clicking
                     mode = iterate_val(modes, mode)
                 elif event.key is K_n: # change the shape that is produced
@@ -90,7 +97,7 @@ def main(args):
                     if not running:
                         b_scene.set_body_data()
                         save_space = b_scene.get_space()
-                        s_scene = SimulationScene(space=save_space, gravity=grav)
+                        s_scene = SimulationScene(space=save_space)
                         s_scene.run_and_visualize()
                     else:
                         pass
